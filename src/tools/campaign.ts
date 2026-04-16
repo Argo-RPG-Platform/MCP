@@ -36,7 +36,7 @@ export async function getCampaign(
   input: z.infer<typeof getCampaignInputSchema>
 ): Promise<Campaign> {
   return argoGet<Campaign>(
-    `/campaigns?id=${encodeURIComponent(input.campaignId)}`
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}`
   );
 }
 
@@ -60,6 +60,6 @@ export async function listCampaignGrants(
   input: z.infer<typeof listCampaignGrantsInputSchema>
 ): Promise<IntegrationGrant[]> {
   return argoGet<IntegrationGrant[]>(
-    `/campaigns/${encodeURIComponent(input.campaignId)}/grants`
+    `/api/v1/campaigns/${encodeURIComponent(input.campaignId)}/grants`
   );
 }

@@ -9,27 +9,28 @@ import { z } from "zod";
 import { argoGet, argoPost, argoPatch } from "../client.js";
 
 // ---------------------------------------------------------------------------
-// Types (mirrors WebAPI MnemosyneEntryDTO)
+// Types (mirrors WebAPI McpMnemonSummaryDTO / McpMnemonDetailDTO)
 // ---------------------------------------------------------------------------
 
 export interface MnemonBlock {
-  blockId: string;
-  type: string;
-  content: unknown;
-}
-
-export interface MnemonEntry {
   id: string;
-  campaignId: string;
-  title: string;
-  type?: string;
-  blocks?: MnemonBlock[];
-  createdAt?: string;
-  updatedAt?: string;
+  type: string;
+  text: string;
 }
 
-export interface MnemonEntryList {
-  entries: MnemonEntry[];
+/** Returned by the list endpoint — id, title, type only. */
+export interface MnemonSummary {
+  entryId: string;
+  title: string;
+  type: string;
+}
+
+/** Returned by get / create / update — includes full block content. */
+export interface MnemonEntry {
+  entryId: string;
+  title: string;
+  type: string;
+  blocks: MnemonBlock[];
 }
 
 // ---------------------------------------------------------------------------
@@ -45,12 +46,10 @@ export const listMnemonsInputSchema = z.object({
 
 export async function listMnemons(
   input: z.infer<typeof listMnemonsInputSchema>
-): Promise<MnemonEntry[]> {
-  const result = await argoGet<MnemonEntry[] | MnemonEntryList>(
-    `/campaigns/${encodeURIComponent(input.campaignId)}/mnemon/entries`
+): Promise<MnemonSummary[]> {
+  return argoGet<MnemonSummary[]>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`
   );
-  // Normalise: endpoint may return array directly or wrapped object
-  return Array.isArray(result) ? result : (result as MnemonEntryList).entries ?? [];
 }
 
 export const getMnemonInputSchema = z.object({
@@ -62,7 +61,7 @@ export async function getMnemon(
   input: z.infer<typeof getMnemonInputSchema>
 ): Promise<MnemonEntry> {
   return argoGet<MnemonEntry>(
-    `/campaigns/${encodeURIComponent(input.campaignId)}/mnemon/entries/${encodeURIComponent(input.entryId)}`
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}`
   );
 }
 
@@ -84,23 +83,21 @@ export const createMnemonInputSchema = z.object({
 });
 
 export interface CreateMnemonPayload {
+  type: string;
   title: string;
-  type?: string;
-  blocks?: Array<{ type: string; content: { text: string } }>;
+  content?: string;
 }
 
 export async function createMnemon(
   input: z.infer<typeof createMnemonInputSchema>
 ): Promise<MnemonEntry> {
   const payload: CreateMnemonPayload = {
+    type: input.type ?? "Custom",
     title: input.title,
-    type: input.type,
+    content: input.content,
   };
-  if (input.content) {
-    payload.blocks = [{ type: "text", content: { text: input.content } }];
-  }
   return argoPost<MnemonEntry, CreateMnemonPayload>(
-    `/campaigns/${encodeURIComponent(input.campaignId)}/mnemon/entries`,
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`,
     payload
   );
 }
@@ -112,16 +109,19 @@ export const updateMnemonInputSchema = z.object({
   content: z.string().optional().describe("New text content (replaces first text block)."),
 });
 
+export interface UpdateMnemonPayload {
+  title?: string;
+  content?: string;
+}
+
 export async function updateMnemon(
   input: z.infer<typeof updateMnemonInputSchema>
 ): Promise<MnemonEntry> {
-  const payload: Partial<CreateMnemonPayload> = {};
+  const payload: UpdateMnemonPayload = {};
   if (input.title) payload.title = input.title;
-  if (input.content) {
-    payload.blocks = [{ type: "text", content: { text: input.content } }];
-  }
-  return argoPatch<MnemonEntry, Partial<CreateMnemonPayload>>(
-    `/campaigns/${encodeURIComponent(input.campaignId)}/mnemon/entries/${encodeURIComponent(input.entryId)}`,
+  if (input.content) payload.content = input.content;
+  return argoPatch<MnemonEntry, UpdateMnemonPayload>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}`,
     payload
   );
 }

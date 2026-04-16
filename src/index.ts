@@ -34,6 +34,7 @@ import {
   listMnemonsInputSchema,
   updateMnemon,
   updateMnemonInputSchema,
+  type MnemonSummary,
 } from "./tools/mnemon.js";
 
 // Load environment variables from .env if present
@@ -107,16 +108,15 @@ server.tool(
     "Requires campaign.read scope.",
   listMnemonsInputSchema.shape,
   async (input) => {
-    const entries = await listMnemons(input);
-    const summary = entries.map((e) => ({ id: e.id, title: e.title, type: e.type }));
+    const entries: MnemonSummary[] = await listMnemons(input);
     return {
       content: [
         {
           type: "text",
           text:
-            summary.length === 0
+            entries.length === 0
               ? "No mnemon entries found."
-              : JSON.stringify(summary, null, 2),
+              : JSON.stringify(entries, null, 2),
         },
       ],
     };
@@ -152,7 +152,7 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Created mnemon entry: ${entry.title} (id: ${entry.id})`,
+          text: `Created mnemon entry: ${entry.title} (id: ${entry.entryId})`,
         },
       ],
     };
@@ -170,7 +170,7 @@ server.tool(
       content: [
         {
           type: "text",
-          text: `Updated mnemon entry: ${entry.title} (id: ${entry.id})`,
+          text: `Updated mnemon entry: ${entry.title} (id: ${entry.entryId})`,
         },
       ],
     };
