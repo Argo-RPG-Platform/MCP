@@ -214,6 +214,9 @@ export async function startHttpServer(): Promise<void> {
       token_endpoint: `${oauthBase}/oauth2/token`,
       userinfo_endpoint: `${oauthBase}/userinfo`,
       jwks_uri: `${oauthBase}/.well-known/jwks.json`,
+      // DCR endpoint — returns the shared PKCE public client so tool scanners
+      // (e.g. ChatGPT Scan Tools) can authenticate without a pre-registered secret.
+      registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
       scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
@@ -221,6 +224,23 @@ export async function startHttpServer(): Promise<void> {
       code_challenge_methods_supported: ["S256"],
       subject_types_supported: ["public"],
       id_token_signing_alg_values_supported: ["RS256"],
+    });
+  });
+
+  // Minimal DCR endpoint (RFC 7591) — always returns the shared PKCE public client.
+  // No new clients are created in Hydra; this just gives tool scanners (ChatGPT,
+  // etc.) a client_id they can use for the PKCE auth flow without a secret.
+  app.post("/oauth/register", (_req, res) => {
+    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    const pkceClientId = process.env.PKCE_CLIENT_ID ?? "f3b0f4d4-c3ce-4278-8f1a-269d0444d6a9";
+    res.status(201).json({
+      client_id: pkceClientId,
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      scope: "openid offline campaign.read campaign.write",
+      authorization_endpoint: `${oauthBase}/oauth2/auth`,
+      token_endpoint: `${oauthBase}/oauth2/token`,
     });
   });
 
