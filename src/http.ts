@@ -207,15 +207,15 @@ export async function startHttpServer(): Promise<void> {
   // Claude Code reads this to discover Hydra's auth/token endpoints and
   // initiate the PKCE flow automatically — no manual token copy-paste needed.
   app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+    const mcpBase  = process.env.MCP_BASE_URL  ?? "https://mcp.argo.games";
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
     res.json({
-      issuer: oauthBase,
+      // issuer MUST match the domain this document is served from (RFC 8414 §2)
+      issuer: mcpBase,
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
       token_endpoint: `${oauthBase}/oauth2/token`,
       userinfo_endpoint: `${oauthBase}/userinfo`,
       jwks_uri: `${oauthBase}/.well-known/jwks.json`,
-      // OIDC discovery — lets ChatGPT and other clients auto-discover OIDC support
-      openid_configuration_url: `${oauthBase}/.well-known/openid-configuration`,
       scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
@@ -224,6 +224,19 @@ export async function startHttpServer(): Promise<void> {
       subject_types_supported: ["public"],
       id_token_signing_alg_values_supported: ["RS256"],
     });
+  });
+
+  // OIDC Discovery — proxies Hydra's openid-configuration so ChatGPT (and other
+  // clients that scan the MCP server's domain) can auto-discover OIDC support.
+  app.get("/.well-known/openid-configuration", async (_req, res) => {
+    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    try {
+      const upstream = await fetch(`${oauthBase}/.well-known/openid-configuration`);
+      const config = await upstream.json();
+      res.json(config);
+    } catch {
+      res.status(502).json({ error: "Could not reach OIDC provider." });
+    }
   });
 
   // ChatGPT domain verification (set OPENAI_CHALLENGE_TOKEN env var in Cloud Run)
