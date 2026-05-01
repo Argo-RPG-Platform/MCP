@@ -5,7 +5,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ArgoApiError } from "./client.js";
-import { getCampaign, getCampaignInputSchema } from "./tools/campaign.js";
+import { getCampaign, getCampaignInputSchema, listCampaigns, listCampaignsInputSchema, type CampaignSummary } from "./tools/campaign.js";
 import {
   createMnemon,
   createMnemonInputSchema,
@@ -53,6 +53,26 @@ async function runTool<T>(
 
 export function createServer(): McpServer {
   const server = new McpServer({ name: "argo-mcp", version: "1.0.0" });
+
+  server.tool(
+    "list_campaigns",
+    "List all Argo campaigns the current grant token has access to, including the access level " +
+      "(\"read\" or \"read+write\") for each. Call this first when the user has not provided a " +
+      "campaign ID — it returns all campaign IDs and names you can then use with other tools.",
+    listCampaignsInputSchema.shape,
+    () =>
+      runTool(
+        () => listCampaigns(),
+        (campaigns: CampaignSummary[]) => ({
+          content: [{
+            type: "text",
+            text: campaigns.length === 0
+              ? "No campaigns found in the current grant. The token may not cover any campaigns."
+              : JSON.stringify(campaigns, null, 2),
+          }],
+        })
+      )
+  );
 
   server.tool(
     "get_campaign",

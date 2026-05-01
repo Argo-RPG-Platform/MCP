@@ -137,6 +137,8 @@ export async function startHttpServer(): Promise<void> {
 
   // GET /sse — ChatGPT connects here; receives the session endpoint URL and
   // then streams server→client messages over the open SSE connection.
+  // Keepalive: sends an SSE comment every 30s to prevent Cloud Run and
+  // intermediate proxies from closing the idle connection.
   app.get("/sse", async (req, res) => {
     try {
       const tokens = extractTokens(req);
@@ -144,7 +146,16 @@ export async function startHttpServer(): Promise<void> {
       sseSessions.set(transport.sessionId, transport);
       sseTokens.set(transport.sessionId, tokens);
 
+      const keepalive = setInterval(() => {
+        if (!res.writableEnded) {
+          res.write(": ping\n\n");
+        } else {
+          clearInterval(keepalive);
+        }
+      }, 30_000);
+
       transport.onclose = () => {
+        clearInterval(keepalive);
         sseSessions.delete(transport.sessionId);
         sseTokens.delete(transport.sessionId);
       };

@@ -25,6 +25,17 @@ export interface Campaign {
 // Tool definitions (registered in index.ts)
 // ---------------------------------------------------------------------------
 
+/** Returned by the list endpoint — includes accessLevel. */
+export interface CampaignSummary extends Campaign {
+  accessLevel?: string;
+}
+
+export const listCampaignsInputSchema = z.object({});
+
+export async function listCampaigns(): Promise<CampaignSummary[]> {
+  return argoGet<CampaignSummary[]>("/mcp/v1/campaigns");
+}
+
 export const getCampaignInputSchema = z.object({
   campaignId: z
     .string()
