@@ -212,11 +212,57 @@ export async function startHttpServer(): Promise<void> {
       issuer: oauthBase,
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
       token_endpoint: `${oauthBase}/oauth2/token`,
+      userinfo_endpoint: `${oauthBase}/userinfo`,
+      jwks_uri: `${oauthBase}/.well-known/jwks.json`,
       scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
       code_challenge_methods_supported: ["S256"],
+    });
+  });
+
+  // ChatGPT domain verification (set OPENAI_CHALLENGE_TOKEN env var in Cloud Run)
+  app.get("/.well-known/openai-apps-challenge", (_req, res) => {
+    const token = process.env.OPENAI_CHALLENGE_TOKEN ?? "";
+    if (!token) { res.status(404).send("Not configured"); return; }
+    res.type("text/plain").send(token);
+  });
+
+  // Gemini CLI extension manifest (https://geminicli.com/docs/extensions/)
+  // Install: gemini extensions install https://mcp.argo.games
+  app.get("/.well-known/gemini-extension.json", (_req, res) => {
+    const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.json({
+      name: "argo",
+      version: "1.0.0",
+      description:
+        "Access your Argo campaigns from Gemini — read and write campaign lore, " +
+        "characters, quests, and locations.",
+      mcpServers: {
+        argo: {
+          httpUrl: `${base}/mcp`,
+          headers: {
+            Authorization: "Bearer ${ARGO_TOKEN}",
+            "X-Refresh-Token": "${ARGO_REFRESH_TOKEN}",
+          },
+        },
+      },
+      settings: [
+        {
+          name: "Argo Access Token",
+          description: "Get one at https://app.argo.games/oauth2/mcp-connect",
+          envVar: "ARGO_TOKEN",
+          sensitive: true,
+        },
+        {
+          name: "Argo Refresh Token",
+          description:
+            "Optional — enables automatic renewal when the access token expires (~1 hour).",
+          envVar: "ARGO_REFRESH_TOKEN",
+          sensitive: true,
+        },
+      ],
     });
   });
 
