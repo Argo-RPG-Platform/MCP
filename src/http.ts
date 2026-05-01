@@ -8,8 +8,12 @@
  * call chain via AsyncLocalStorage — tool code is unchanged.
  *
  * Token delivery:
- *   Authorization: Bearer <access_token>   (required)
+ *   Authorization: Bearer <access_token>   (required on first request)
  *   X-Refresh-Token: <refresh_token>       (optional — enables auto-renewal)
+ *
+ * Session token caching: the token from the first request is cached against
+ * the session ID so that MCP clients that omit the Authorization header on
+ * subsequent requests (a known Claude Code behaviour) continue to work.
  */
 
 import express from "express";
@@ -18,7 +22,12 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
 
-function extractTokens(req: express.Request): { token: string; refreshToken: string | null } {
+interface SessionTokens {
+  token: string;
+  refreshToken: string | null;
+}
+
+function extractTokens(req: express.Request): SessionTokens {
   const auth = (req.headers["authorization"] ?? "") as string;
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) {
@@ -36,25 +45,51 @@ export async function startHttpServer(): Promise<void> {
   app.use(express.json());
 
   const sessions = new Map<string, StreamableHTTPServerTransport>();
+  const sessionTokens = new Map<string, SessionTokens>();
+
+  function resolveTokens(req: express.Request, sessionId?: string): SessionTokens {
+    try {
+      const tokens = extractTokens(req);
+      // Always update the cache when the header is present
+      if (sessionId) sessionTokens.set(sessionId, tokens);
+      return tokens;
+    } catch {
+      // Header absent — fall back to session-cached token (Claude Code omits
+      // headers on requests after the first one in a session)
+      if (sessionId) {
+        const cached = sessionTokens.get(sessionId);
+        if (cached) return cached;
+      }
+      throw new Error(
+        "Missing Authorization header. " +
+          "Get a token at https://app.argo.games/oauth2/mcp-connect"
+      );
+    }
+  }
 
   // POST /mcp — initialize session or handle subsequent requests
   app.post("/mcp", async (req, res) => {
     try {
-      const { token, refreshToken } = extractTokens(req);
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      const tokens = resolveTokens(req, sessionId);
       let transport = sessionId ? sessions.get(sessionId) : undefined;
 
       if (!transport) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id: string) => { sessions.set(id, transport!); },
+          onsessioninitialized: (id: string) => {
+            sessions.set(id, transport!);
+            sessionTokens.set(id, tokens);
+          },
         });
         const server = createServer();
         await server.connect(transport);
       }
 
       const t = transport;
-      await runWithToken(token, refreshToken, () => t.handleRequest(req, res, req.body));
+      await runWithToken(tokens.token, tokens.refreshToken, () =>
+        t.handleRequest(req, res, req.body)
+      );
     } catch (err) {
       if (!res.headersSent) {
         res.status(401).json({ error: (err as Error).message });
@@ -65,14 +100,16 @@ export async function startHttpServer(): Promise<void> {
   // GET /mcp — server-sent events stream for an existing session
   app.get("/mcp", async (req, res) => {
     try {
-      const { token, refreshToken } = extractTokens(req);
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      const tokens = resolveTokens(req, sessionId);
       const transport = sessionId ? sessions.get(sessionId) : undefined;
       if (!transport) {
         res.status(404).json({ error: "Session not found. Send a POST /mcp request first." });
         return;
       }
-      await runWithToken(token, refreshToken, () => transport.handleRequest(req, res));
+      await runWithToken(tokens.token, tokens.refreshToken, () =>
+        transport.handleRequest(req, res)
+      );
     } catch (err) {
       if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
     }
@@ -86,6 +123,7 @@ export async function startHttpServer(): Promise<void> {
       if (transport) {
         await transport.close();
         sessions.delete(sessionId);
+        sessionTokens.delete(sessionId);
       }
     }
     res.status(204).send();
