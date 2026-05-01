@@ -22,6 +22,8 @@ import {
 import {
   createMnemon,
   createMnemonInputSchema,
+  describeMnemonTypes,
+  describeMnemonTypesInputSchema,
   getMnemon,
   getMnemonInputSchema,
   listMnemons,
@@ -113,6 +115,24 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "describe_mnemon_types",
+    {
+      description:
+        "Returns a catalog of all mnemon types (NPC, Location, Quest, Lore, Archive, Journal, " +
+        "SessionSummary, Player, Custom) and the type-specific fields each one supports. " +
+        "Call this before create_mnemon when the user's request mentions a specific type or sub-category " +
+        "(e.g. 'NPC of type faction', 'completed quest') so you know which extra fields to include.",
+      inputSchema: describeMnemonTypesInputSchema.shape,
+      annotations: READ_ONLY,
+    },
+    () =>
+      runTool(
+        () => Promise.resolve(describeMnemonTypes()),
+        (catalog) => ({ content: [{ type: "text", text: JSON.stringify(catalog, null, 2) }] })
+      )
+  );
+
+  server.registerTool(
     "list_mnemons",
     {
       description:
@@ -154,7 +174,11 @@ export function createServer(): McpServer {
     {
       description:
         "Create a new mnemon (lore/memory) entry in an Argo campaign. " +
-        "Requires campaign.write scope (only available when the GM granted write access).",
+        "Requires campaign.write scope (only available when the GM granted write access). " +
+        "Supports type-specific fields: npcType/sheetId/primaryLocationEntryId (NPC), " +
+        "questStatus/issuerNpcEntryId/issuerText/repeatable (Quest), levelId (Location), " +
+        "date/sessionNumber (Journal/SessionSummary), playerKind/partyId/characterId (Player). " +
+        "Call describe_mnemon_types for the full field catalog.",
       inputSchema: createMnemonInputSchema.shape,
       annotations: WRITE_SAFE,
     },
@@ -171,7 +195,8 @@ export function createServer(): McpServer {
     "update_mnemon",
     {
       description:
-        "Update the title or text content of an existing mnemon entry. " +
+        "Update an existing mnemon entry. All fields are optional — only supplied fields are changed. " +
+        "Supports the same type-specific fields as create_mnemon. " +
         "Requires campaign.write scope (only available when the GM granted write access).",
       inputSchema: updateMnemonInputSchema.shape,
       annotations: WRITE_SAFE,
