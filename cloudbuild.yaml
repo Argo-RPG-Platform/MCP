@@ -1,0 +1,47 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    args:
+      - build
+      - --no-cache
+      - -t
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - .
+      - -f
+      - Dockerfile
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - $_SERVICE_NAME
+      - --platform=managed
+      - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - --region=$_DEPLOY_REGION
+      - --quiet
+
+images:
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+substitutions:
+  _AR_HOSTNAME: us-central1-docker.pkg.dev
+  _AR_PROJECT_ID: cool-coral-346008
+  _AR_REPOSITORY: cloud-run-source-deploy
+  _SERVICE_NAME: mcp
+  _DEPLOY_REGION: us-central1
+  _TRIGGER_ID: 2f661623-9f16-475c-b6fa-c9fb0d38653a
+  _PLATFORM: managed
