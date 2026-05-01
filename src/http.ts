@@ -192,7 +192,7 @@ export async function startHttpServer(): Promise<void> {
       }
 
       await runWithToken(tokens.token, tokens.refreshToken, () =>
-        transport.handlePostMessage(req, res)
+        transport.handlePostMessage(req, res, req.body)
       );
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
