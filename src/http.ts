@@ -1,24 +1,27 @@
 /**
  * HTTP transport for the Argo MCP server (hosted mode).
  *
- * Listens on $PORT (default 8080) and exposes a single /mcp endpoint that
- * implements the MCP Streamable HTTP transport. Each user session gets its
- * own transport instance. The user's OAuth2 token is extracted from the
- * Authorization header on every request and scoped to that request's async
- * call chain via AsyncLocalStorage — tool code is unchanged.
+ * Supports two MCP transports on the same Express server:
  *
- * Token delivery:
+ *   Streamable HTTP  POST/GET/DELETE /mcp
+ *     Modern transport used by Claude Code and Codex.
+ *
+ *   SSE              GET /sse  +  POST /messages
+ *     Legacy transport required by ChatGPT connectors.
+ *
+ * Token delivery (both transports):
  *   Authorization: Bearer <access_token>   (required on first request)
  *   X-Refresh-Token: <refresh_token>       (optional — enables auto-renewal)
  *
- * Session token caching: the token from the first request is cached against
- * the session ID so that MCP clients that omit the Authorization header on
- * subsequent requests (a known Claude Code behaviour) continue to work.
+ * Session token caching: the Bearer token from the first request is cached
+ * per session so MCP clients that omit the Authorization header on subsequent
+ * requests (a known Claude Code behaviour) continue to work.
  */
 
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
 
@@ -44,20 +47,21 @@ export async function startHttpServer(): Promise<void> {
   const app = express();
   app.use(express.json());
 
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
-  const sessionTokens = new Map<string, SessionTokens>();
+  // ---------------------------------------------------------------------------
+  // Streamable HTTP transport (Claude Code, Codex)
+  // ---------------------------------------------------------------------------
 
-  function resolveTokens(req: express.Request, sessionId?: string): SessionTokens {
+  const streamSessions = new Map<string, StreamableHTTPServerTransport>();
+  const streamTokens = new Map<string, SessionTokens>();
+
+  function resolveStreamTokens(req: express.Request, sessionId?: string): SessionTokens {
     try {
       const tokens = extractTokens(req);
-      // Always update the cache when the header is present
-      if (sessionId) sessionTokens.set(sessionId, tokens);
+      if (sessionId) streamTokens.set(sessionId, tokens);
       return tokens;
     } catch {
-      // Header absent — fall back to session-cached token (Claude Code omits
-      // headers on requests after the first one in a session)
       if (sessionId) {
-        const cached = sessionTokens.get(sessionId);
+        const cached = streamTokens.get(sessionId);
         if (cached) return cached;
       }
       throw new Error(
@@ -67,19 +71,18 @@ export async function startHttpServer(): Promise<void> {
     }
   }
 
-  // POST /mcp — initialize session or handle subsequent requests
   app.post("/mcp", async (req, res) => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveTokens(req, sessionId);
-      let transport = sessionId ? sessions.get(sessionId) : undefined;
+      const tokens = resolveStreamTokens(req, sessionId);
+      let transport = sessionId ? streamSessions.get(sessionId) : undefined;
 
       if (!transport) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id: string) => {
-            sessions.set(id, transport!);
-            sessionTokens.set(id, tokens);
+            streamSessions.set(id, transport!);
+            streamTokens.set(id, tokens);
           },
         });
         const server = createServer();
@@ -91,18 +94,15 @@ export async function startHttpServer(): Promise<void> {
         t.handleRequest(req, res, req.body)
       );
     } catch (err) {
-      if (!res.headersSent) {
-        res.status(401).json({ error: (err as Error).message });
-      }
+      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
     }
   });
 
-  // GET /mcp — server-sent events stream for an existing session
   app.get("/mcp", async (req, res) => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveTokens(req, sessionId);
-      const transport = sessionId ? sessions.get(sessionId) : undefined;
+      const tokens = resolveStreamTokens(req, sessionId);
+      const transport = sessionId ? streamSessions.get(sessionId) : undefined;
       if (!transport) {
         res.status(404).json({ error: "Session not found. Send a POST /mcp request first." });
         return;
@@ -115,19 +115,82 @@ export async function startHttpServer(): Promise<void> {
     }
   });
 
-  // DELETE /mcp — explicit session teardown
   app.delete("/mcp", async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     if (sessionId) {
-      const transport = sessions.get(sessionId);
+      const transport = streamSessions.get(sessionId);
       if (transport) {
         await transport.close();
-        sessions.delete(sessionId);
-        sessionTokens.delete(sessionId);
+        streamSessions.delete(sessionId);
+        streamTokens.delete(sessionId);
       }
     }
     res.status(204).send();
   });
+
+  // ---------------------------------------------------------------------------
+  // SSE transport (ChatGPT)
+  // ---------------------------------------------------------------------------
+
+  const sseSessions = new Map<string, SSEServerTransport>();
+  const sseTokens = new Map<string, SessionTokens>();
+
+  // GET /sse — ChatGPT connects here; receives the session endpoint URL and
+  // then streams server→client messages over the open SSE connection.
+  app.get("/sse", async (req, res) => {
+    try {
+      const tokens = extractTokens(req);
+      const transport = new SSEServerTransport("/messages", res);
+      sseSessions.set(transport.sessionId, transport);
+      sseTokens.set(transport.sessionId, tokens);
+
+      transport.onclose = () => {
+        sseSessions.delete(transport.sessionId);
+        sseTokens.delete(transport.sessionId);
+      };
+
+      const server = createServer();
+      await server.connect(transport);
+      // The SSE connection stays open until the client disconnects.
+    } catch (err) {
+      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
+    }
+  });
+
+  // POST /messages — ChatGPT sends client→server messages here.
+  app.post("/messages", async (req, res) => {
+    try {
+      const sessionId = req.query["sessionId"] as string | undefined;
+      const transport = sessionId ? sseSessions.get(sessionId) : undefined;
+      if (!transport) {
+        res.status(404).json({ error: "SSE session not found." });
+        return;
+      }
+
+      // Use cached token from the GET /sse handshake; update if header present.
+      let tokens = sseTokens.get(sessionId!) ?? null;
+      try {
+        const fresh = extractTokens(req);
+        sseTokens.set(sessionId!, fresh);
+        tokens = fresh;
+      } catch { /* no header — use cached */ }
+
+      if (!tokens) {
+        res.status(401).json({ error: "No token for this session." });
+        return;
+      }
+
+      await runWithToken(tokens.token, tokens.refreshToken, () =>
+        transport.handlePostMessage(req, res)
+      );
+    } catch (err) {
+      if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // OAuth discovery + health
+  // ---------------------------------------------------------------------------
 
   // OAuth 2.0 Authorization Server Metadata (RFC 8414)
   // Claude Code reads this to discover Hydra's auth/token endpoints and
@@ -146,9 +209,10 @@ export async function startHttpServer(): Promise<void> {
     });
   });
 
-  // Health check for Cloud Run / load balancers
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
   const port = parseInt(process.env.PORT ?? "8080", 10);
-  app.listen(port, () => console.error(`Argo MCP HTTP server listening on port ${port}`));
+  app.listen(port, () =>
+    console.error(`Argo MCP HTTP server listening on port ${port} (Streamable HTTP + SSE)`)
+  );
 }
