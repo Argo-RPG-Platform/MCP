@@ -212,6 +212,8 @@ export async function startHttpServer(): Promise<void> {
       issuer: oauthBase,
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
       token_endpoint: `${oauthBase}/oauth2/token`,
+      userinfo_endpoint: `${oauthBase}/userinfo`,
+      jwks_uri: `${oauthBase}/.well-known/jwks.json`,
       scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
