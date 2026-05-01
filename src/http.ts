@@ -214,11 +214,15 @@ export async function startHttpServer(): Promise<void> {
       token_endpoint: `${oauthBase}/oauth2/token`,
       userinfo_endpoint: `${oauthBase}/userinfo`,
       jwks_uri: `${oauthBase}/.well-known/jwks.json`,
+      // OIDC discovery — lets ChatGPT and other clients auto-discover OIDC support
+      openid_configuration_url: `${oauthBase}/.well-known/openid-configuration`,
       scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
       code_challenge_methods_supported: ["S256"],
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
     });
   });
 
