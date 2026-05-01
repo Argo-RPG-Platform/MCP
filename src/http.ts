@@ -129,6 +129,23 @@ export async function startHttpServer(): Promise<void> {
     res.status(204).send();
   });
 
+  // OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  // Claude Code reads this to discover Hydra's auth/token endpoints and
+  // initiate the PKCE flow automatically — no manual token copy-paste needed.
+  app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    res.json({
+      issuer: oauthBase,
+      authorization_endpoint: `${oauthBase}/oauth2/auth`,
+      token_endpoint: `${oauthBase}/oauth2/token`,
+      scopes_supported: ["openid", "offline", "campaign.read", "campaign.write"],
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+      code_challenge_methods_supported: ["S256"],
+    });
+  });
+
   // Health check for Cloud Run / load balancers
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
