@@ -220,6 +220,43 @@ export async function startHttpServer(): Promise<void> {
     });
   });
 
+  // Gemini CLI extension manifest (https://geminicli.com/docs/extensions/)
+  // Install: gemini extensions install https://mcp.argo.games
+  app.get("/.well-known/gemini-extension.json", (_req, res) => {
+    const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.json({
+      name: "argo",
+      version: "1.0.0",
+      description:
+        "Access your Argo campaigns from Gemini — read and write campaign lore, " +
+        "characters, quests, and locations.",
+      mcpServers: {
+        argo: {
+          httpUrl: `${base}/mcp`,
+          headers: {
+            Authorization: "Bearer ${ARGO_TOKEN}",
+            "X-Refresh-Token": "${ARGO_REFRESH_TOKEN}",
+          },
+        },
+      },
+      settings: [
+        {
+          name: "Argo Access Token",
+          description: "Get one at https://app.argo.games/oauth2/mcp-connect",
+          envVar: "ARGO_TOKEN",
+          sensitive: true,
+        },
+        {
+          name: "Argo Refresh Token",
+          description:
+            "Optional — enables automatic renewal when the access token expires (~1 hour).",
+          envVar: "ARGO_REFRESH_TOKEN",
+          sensitive: true,
+        },
+      ],
+    });
+  });
+
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
   const port = parseInt(process.env.PORT ?? "8080", 10);
