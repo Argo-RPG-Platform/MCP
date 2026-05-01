@@ -222,6 +222,13 @@ export async function startHttpServer(): Promise<void> {
     });
   });
 
+  // ChatGPT domain verification (set OPENAI_CHALLENGE_TOKEN env var in Cloud Run)
+  app.get("/.well-known/openai-apps-challenge", (_req, res) => {
+    const token = process.env.OPENAI_CHALLENGE_TOKEN ?? "";
+    if (!token) { res.status(404).send("Not configured"); return; }
+    res.type("text/plain").send(token);
+  });
+
   // Gemini CLI extension manifest (https://geminicli.com/docs/extensions/)
   // Install: gemini extensions install https://mcp.argo.games
   app.get("/.well-known/gemini-extension.json", (_req, res) => {
