@@ -40,26 +40,8 @@ export async function getCampaign(
   );
 }
 
-export const listCampaignGrantsInputSchema = z.object({
-  campaignId: z
-    .string()
-    .min(1)
-    .describe("Campaign ID to list active AI integration grants for (GM only)."),
-});
-
-export interface IntegrationGrant {
-  grantId: string;
-  campaignId: string;
-  hydraClientId: string;
-  accessLevel: "READ" | "WRITE";
-  status: "ACTIVE" | "REVOKED";
-  createdAt: string;
-}
-
-export async function listCampaignGrants(
-  input: z.infer<typeof listCampaignGrantsInputSchema>
-): Promise<IntegrationGrant[]> {
-  return argoGet<IntegrationGrant[]>(
-    `/api/v1/campaigns/${encodeURIComponent(input.campaignId)}/grants`
-  );
-}
+// listCampaignGrants was previously exposed here but called the user-session
+// endpoint /api/v1/campaigns/{id}/grants. With a Hydra-issued grant JWT the
+// MCP server cannot authenticate against /api/v1 (Oathkeeper expects a Kratos
+// session there). GMs manage grants from the WebApp's integrations UI; the
+// AI assistant doesn't need this surface.

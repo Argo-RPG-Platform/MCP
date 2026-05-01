@@ -22,8 +22,6 @@ import { loadToken } from "./auth.js";
 import {
   getCampaign,
   getCampaignInputSchema,
-  listCampaignGrants,
-  listCampaignGrantsInputSchema,
 } from "./tools/campaign.js";
 import {
   createMnemon,
@@ -71,27 +69,6 @@ server.tool(
         {
           type: "text",
           text: JSON.stringify(campaign, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.tool(
-  "list_campaign_grants",
-  "List active AI integration grants for a campaign. " +
-    "Only available to the campaign Game Master.",
-  listCampaignGrantsInputSchema.shape,
-  async (input) => {
-    const grants = await listCampaignGrants(input);
-    return {
-      content: [
-        {
-          type: "text",
-          text:
-            grants.length === 0
-              ? "No active integration grants."
-              : JSON.stringify(grants, null, 2),
         },
       ],
     };

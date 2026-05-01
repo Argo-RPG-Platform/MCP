@@ -7,7 +7,9 @@
 
 import { getToken } from "./auth.js";
 
-const API_BASE = process.env.ARGO_API_BASE ?? "https://api.argo.games/api/v1";
+// Tool functions pass full paths starting with `/mcp/v1/...` (or `/api/v1/...`
+// if calling user-session endpoints), so the base must NOT include a path prefix.
+const API_BASE = process.env.ARGO_API_BASE ?? "https://api.argo.games";
 
 export class ArgoApiError extends Error {
   constructor(
