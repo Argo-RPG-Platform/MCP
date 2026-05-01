@@ -1,27 +1,35 @@
 /**
  * Token management for the Argo MCP server.
  *
- * The access token is obtained externally via the Argo Hydra OAuth2 consent
- * flow (the user authorizes the MCP from the Argo WebApp). The token is then
- * supplied to this server via the OAUTH_TOKEN environment variable.
+ * Two modes:
  *
- * The optional REFRESH_TOKEN environment variable enables automatic token
- * renewal: when the access token expires (401), the server calls the Argo
- * refresh endpoint and retries the request once.
+ *  stdio  — one user, one token for the lifetime of the process. The token is
+ *            loaded from OAUTH_TOKEN / REFRESH_TOKEN env vars at startup via
+ *            loadToken(). getToken() reads the global.
  *
- * Security notes:
- *  - Tokens are never stored to disk by this server.
- *  - The token subject is a grantId (not a userId); Oathkeeper injects it as
- *    X-Grant-Map so WebAPI can authorize the requested campaign.
+ *  HTTP   — many concurrent users, each request carries its own token in the
+ *            Authorization header. runWithToken() stores it in AsyncLocalStorage
+ *            so getToken() / getRefreshToken() / setToken() are automatically
+ *            scoped to the current request's async call chain with no changes
+ *            needed in the tool files.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
+interface TokenCtx {
+  token: string;
+  refreshToken: string | null;
+}
+
+const _httpCtx = new AsyncLocalStorage<TokenCtx>();
+
+// stdio-mode globals
 let _token: string | null = null;
 let _refreshToken: string | null = null;
 
 /**
- * Load tokens from environment variables.
+ * Load tokens from environment variables (stdio mode only).
  * OAUTH_TOKEN is required; REFRESH_TOKEN is optional.
- * Call this once at startup.
  */
 export function loadToken(): void {
   const token = process.env.OAUTH_TOKEN;
@@ -36,30 +44,48 @@ export function loadToken(): void {
 }
 
 /**
- * Returns the current access token.
- * Throws if the token has not been loaded.
+ * Run fn with a per-request token context (HTTP mode).
+ * All async calls within fn — including tool handlers — see this token.
  */
-export function getToken(): string {
-  if (!_token) {
-    throw new Error("Token not loaded. Call loadToken() first.");
-  }
-  return _token;
+export function runWithToken<T>(
+  token: string,
+  refreshToken: string | null,
+  fn: () => T
+): T {
+  return _httpCtx.run({ token, refreshToken }, fn);
 }
 
 /**
- * Returns the refresh token, or null if none was configured.
+ * Returns the current access token.
+ * In HTTP mode reads from AsyncLocalStorage; in stdio mode reads the global.
+ */
+export function getToken(): string {
+  const ctx = _httpCtx.getStore();
+  if (ctx) return ctx.token;
+  if (_token) return _token;
+  throw new Error("Token not loaded. Call loadToken() first.");
+}
+
+/**
+ * Returns the current refresh token, or null if not configured.
  */
 export function getRefreshToken(): string | null {
+  const ctx = _httpCtx.getStore();
+  if (ctx) return ctx.refreshToken;
   return _refreshToken;
 }
 
 /**
- * Updates the in-memory access token (and optionally the refresh token) after
- * a successful token refresh. Called by the retry logic in client.ts.
+ * Updates the in-memory token after a successful refresh.
+ * In HTTP mode updates the request-scoped context; in stdio mode updates the global.
  */
 export function setToken(newAccessToken: string, newRefreshToken?: string): void {
-  _token = newAccessToken;
-  if (newRefreshToken) {
-    _refreshToken = newRefreshToken;
+  const ctx = _httpCtx.getStore();
+  if (ctx) {
+    ctx.token = newAccessToken;
+    if (newRefreshToken) ctx.refreshToken = newRefreshToken;
+    return;
   }
+  _token = newAccessToken;
+  if (newRefreshToken) _refreshToken = newRefreshToken;
 }
