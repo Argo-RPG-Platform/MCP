@@ -30,17 +30,69 @@ interface SessionTokens {
   refreshToken: string | null;
 }
 
-function extractTokens(req: express.Request): SessionTokens {
+class AuthRequiredError extends Error {
+  constructor(message: string = "authorization_required") {
+    super(message);
+    this.name = "AuthRequiredError";
+  }
+}
+
+// JSON-RPC methods that are part of MCP capability discovery and run without
+// auth. Per MCP + RFC 9728 spec guidance: a client must be able to enumerate
+// tools (each carrying its own securitySchemes descriptor) before deciding
+// which scopes to request.
+const PUBLIC_METHODS = new Set<string>([
+  "initialize",
+  "notifications/initialized",
+  "tools/list",
+]);
+
+function rpcMethods(body: unknown): string[] {
+  if (Array.isArray(body)) {
+    return body
+      .map((b) => (b && typeof (b as { method?: unknown }).method === "string"
+        ? (b as { method: string }).method
+        : null))
+      .filter((m): m is string => m !== null);
+  }
+  if (body && typeof body === "object" && typeof (body as { method?: unknown }).method === "string") {
+    return [(body as { method: string }).method];
+  }
+  return [];
+}
+
+function isPublicRpc(body: unknown): boolean {
+  const methods = rpcMethods(body);
+  if (methods.length === 0) return false;
+  return methods.every((m) => PUBLIC_METHODS.has(m));
+}
+
+function tryExtractTokens(req: express.Request): SessionTokens | null {
   const auth = (req.headers["authorization"] ?? "") as string;
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token) {
-    throw new Error(
-      "Missing or invalid Authorization header. " +
-        "Get a token at https://app.argo.games/oauth2/mcp-connect and pass it as: Authorization: Bearer <token>"
-    );
-  }
+  if (!token) return null;
   const refreshToken = (req.headers["x-refresh-token"] as string | undefined) ?? null;
   return { token, refreshToken };
+}
+
+// RFC 6750 / RFC 9728 standards-compliant 401 challenge.
+function sendAuthChallenge(
+  res: express.Response,
+  scope: string = "campaign.read",
+  errorDescription?: string
+): void {
+  if (res.headersSent) return;
+  const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+  const parts = [
+    `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+    `scope="${scope}"`,
+  ];
+  if (errorDescription) {
+    parts.push(`error="invalid_token"`);
+    parts.push(`error_description="${errorDescription.replace(/"/g, "'")}"`);
+  }
+  res.setHeader("WWW-Authenticate", parts.join(", "));
+  res.status(401).json({ error: "authorization_required" });
 }
 
 export async function startHttpServer(): Promise<void> {
@@ -54,35 +106,52 @@ export async function startHttpServer(): Promise<void> {
   const streamSessions = new Map<string, StreamableHTTPServerTransport>();
   const streamTokens = new Map<string, SessionTokens>();
 
-  function resolveStreamTokens(req: express.Request, sessionId?: string): SessionTokens {
-    try {
-      const tokens = extractTokens(req);
-      if (sessionId) streamTokens.set(sessionId, tokens);
-      return tokens;
-    } catch {
-      if (sessionId) {
-        const cached = streamTokens.get(sessionId);
-        if (cached) return cached;
-      }
-      throw new Error(
-        "Missing Authorization header. " +
-          "Get a token at https://app.argo.games/oauth2/mcp-connect"
-      );
+  /**
+   * Resolve tokens for a Streamable HTTP request.
+   *
+   * Returns null when the call is a public-discovery RPC (initialize,
+   * notifications/initialized, tools/list) AND no Authorization header was
+   * supplied — those execute unauthenticated so MCP scanners can read the
+   * tool catalog before the user has consented.
+   *
+   * For any other method, a missing/invalid token is signalled by throwing
+   * an AuthRequiredError so the caller can emit a WWW-Authenticate challenge.
+   */
+  function resolveStreamTokens(
+    req: express.Request,
+    sessionId: string | undefined,
+    body: unknown
+  ): SessionTokens | null {
+    const fresh = tryExtractTokens(req);
+    if (fresh) {
+      if (sessionId) streamTokens.set(sessionId, fresh);
+      return fresh;
     }
+    const cached = sessionId ? streamTokens.get(sessionId) ?? null : null;
+    if (cached) return cached;
+    if (isPublicRpc(body)) return null;
+    throw new AuthRequiredError();
   }
 
   app.post("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    let tokens: SessionTokens | null;
     try {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveStreamTokens(req, sessionId);
-      let transport = sessionId ? streamSessions.get(sessionId) : undefined;
+      tokens = resolveStreamTokens(req, sessionId, req.body);
+    } catch (err) {
+      if (err instanceof AuthRequiredError) return sendAuthChallenge(res);
+      if (!res.headersSent) res.status(400).json({ error: (err as Error).message });
+      return;
+    }
 
+    try {
+      let transport = sessionId ? streamSessions.get(sessionId) : undefined;
       if (!transport) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id: string) => {
             streamSessions.set(id, transport!);
-            streamTokens.set(id, tokens);
+            if (tokens) streamTokens.set(id, tokens);
           },
         });
         const server = createServer();
@@ -90,28 +159,37 @@ export async function startHttpServer(): Promise<void> {
       }
 
       const t = transport;
-      await runWithToken(tokens.token, tokens.refreshToken, () =>
-        t.handleRequest(req, res, req.body)
-      );
+      const handle = () => t.handleRequest(req, res, req.body);
+      if (tokens) {
+        await runWithToken(tokens.token, tokens.refreshToken, handle);
+      } else {
+        await handle();
+      }
     } catch (err) {
-      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
+      if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
     }
   });
 
   app.get("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    const transport = sessionId ? streamSessions.get(sessionId) : undefined;
+    if (!transport) {
+      res.status(404).json({ error: "Session not found. Send a POST /mcp request first." });
+      return;
+    }
+    // GET /mcp resumes a previously established session — re-use whatever
+    // token was cached when the session was opened (may be null if the
+    // session was started by an unauthenticated discovery call).
+    const tokens = (sessionId && streamTokens.get(sessionId)) || tryExtractTokens(req);
     try {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveStreamTokens(req, sessionId);
-      const transport = sessionId ? streamSessions.get(sessionId) : undefined;
-      if (!transport) {
-        res.status(404).json({ error: "Session not found. Send a POST /mcp request first." });
-        return;
+      const handle = () => transport.handleRequest(req, res);
+      if (tokens) {
+        await runWithToken(tokens.token, tokens.refreshToken, handle);
+      } else {
+        await handle();
       }
-      await runWithToken(tokens.token, tokens.refreshToken, () =>
-        transport.handleRequest(req, res)
-      );
     } catch (err) {
-      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
+      if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -141,10 +219,13 @@ export async function startHttpServer(): Promise<void> {
   // intermediate proxies from closing the idle connection.
   app.get("/sse", async (req, res) => {
     try {
-      const tokens = extractTokens(req);
+      // Auth is optional at handshake — the per-message handler below enforces
+      // it for non-public RPC methods. ChatGPT often opens /sse before the
+      // user has consented, just to do tool discovery.
+      const tokens = tryExtractTokens(req);
       const transport = new SSEServerTransport("/messages", res);
       sseSessions.set(transport.sessionId, transport);
-      sseTokens.set(transport.sessionId, tokens);
+      if (tokens) sseTokens.set(transport.sessionId, tokens);
 
       const keepalive = setInterval(() => {
         if (!res.writableEnded) {
@@ -179,21 +260,20 @@ export async function startHttpServer(): Promise<void> {
       }
 
       // Use cached token from the GET /sse handshake; update if header present.
-      let tokens = sseTokens.get(sessionId!) ?? null;
-      try {
-        const fresh = extractTokens(req);
-        sseTokens.set(sessionId!, fresh);
-        tokens = fresh;
-      } catch { /* no header — use cached */ }
+      const fresh = tryExtractTokens(req);
+      if (fresh) sseTokens.set(sessionId!, fresh);
+      const tokens = fresh ?? sseTokens.get(sessionId!) ?? null;
 
-      if (!tokens) {
-        res.status(401).json({ error: "No token for this session." });
-        return;
+      if (!tokens && !isPublicRpc(req.body)) {
+        return sendAuthChallenge(res);
       }
 
-      await runWithToken(tokens.token, tokens.refreshToken, () =>
-        transport.handlePostMessage(req, res, req.body)
-      );
+      const handle = () => transport.handlePostMessage(req, res, req.body);
+      if (tokens) {
+        await runWithToken(tokens.token, tokens.refreshToken, handle);
+      } else {
+        await handle();
+      }
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
     }
@@ -290,7 +370,7 @@ export async function startHttpServer(): Promise<void> {
       // DCR endpoint — returns the shared PKCE public client so tool scanners
       // (e.g. ChatGPT Scan Tools) can authenticate without a pre-registered secret.
       registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
-      scopes_supported: ["openid", "offline", "offline_access", "campaign.read", "campaign.write"],
+      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
@@ -311,7 +391,7 @@ export async function startHttpServer(): Promise<void> {
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      scope: "openid offline offline_access campaign.read campaign.write",
+      scope: "openid offline_access campaign.read campaign.write",
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
       token_endpoint: `${oauthBase}/oauth2/token`,
     });
@@ -322,6 +402,21 @@ export async function startHttpServer(): Promise<void> {
   app.get("/.well-known/openid-configuration", (_req, res) => {
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
     res.redirect(301, `${oauthBase}/.well-known/openid-configuration`);
+  });
+
+  // OAuth 2.0 Protected Resource Metadata (RFC 9728).
+  // Lets MCP clients (Claude, ChatGPT) discover which authorization server
+  // protects this resource and what scopes are valid.
+  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.json({
+      resource: base,
+      authorization_servers: [oauthBase],
+      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
+      bearer_methods_supported: ["header"],
+      resource_documentation: "https://app.argo.games/docs/mcp",
+    });
   });
 
   // ChatGPT domain verification (set OPENAI_CHALLENGE_TOKEN env var in Cloud Run)
