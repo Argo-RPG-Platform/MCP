@@ -133,7 +133,7 @@ export async function startHttpServer(): Promise<void> {
     throw new AuthRequiredError();
   }
 
-  app.post("/mcp", async (req, res) => {
+  const handleStreamPost: express.RequestHandler = async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     let tokens: SessionTokens | null;
     try {
@@ -168,18 +168,18 @@ export async function startHttpServer(): Promise<void> {
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
     }
-  });
+  };
 
-  app.get("/mcp", async (req, res) => {
+  const handleStreamGet: express.RequestHandler = async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     const transport = sessionId ? streamSessions.get(sessionId) : undefined;
     if (!transport) {
-      res.status(404).json({ error: "Session not found. Send a POST /mcp request first." });
+      res.status(404).json({ error: "Session not found. Send a POST request first." });
       return;
     }
-    // GET /mcp resumes a previously established session — re-use whatever
-    // token was cached when the session was opened (may be null if the
-    // session was started by an unauthenticated discovery call).
+    // Resume a previously established session — re-use whatever token was
+    // cached when the session was opened (may be null if the session was
+    // started by an unauthenticated discovery call).
     const tokens = (sessionId && streamTokens.get(sessionId)) || tryExtractTokens(req);
     try {
       const handle = () => transport.handleRequest(req, res);
@@ -191,9 +191,9 @@ export async function startHttpServer(): Promise<void> {
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
     }
-  });
+  };
 
-  app.delete("/mcp", async (req, res) => {
+  const handleStreamDelete: express.RequestHandler = async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     if (sessionId) {
       const transport = streamSessions.get(sessionId);
@@ -204,7 +204,16 @@ export async function startHttpServer(): Promise<void> {
       }
     }
     res.status(204).send();
-  });
+  };
+
+  // Streamable HTTP routes. Mirrored at "/" because Claude Desktop posts to
+  // the root when the connector URL has no path component.
+  app.post("/mcp", handleStreamPost);
+  app.get("/mcp", handleStreamGet);
+  app.delete("/mcp", handleStreamDelete);
+  app.post("/", handleStreamPost);
+  app.get("/", handleStreamGet);
+  app.delete("/", handleStreamDelete);
 
   // ---------------------------------------------------------------------------
   // SSE transport (ChatGPT)
@@ -280,81 +289,8 @@ export async function startHttpServer(): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
-  // Root path aliases — Claude Desktop posts to / when the connector URL has
-  // no path, so mirror the /mcp handlers here to avoid 404s.
-  // ---------------------------------------------------------------------------
-
-  app.post("/", async (req, res) => {
-    try {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveStreamTokens(req, sessionId);
-      let transport = sessionId ? streamSessions.get(sessionId) : undefined;
-
-      if (!transport) {
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id: string) => {
-            streamSessions.set(id, transport!);
-            streamTokens.set(id, tokens);
-          },
-        });
-        const server = createServer();
-        await server.connect(transport);
-      }
-
-      const t = transport;
-      await runWithToken(tokens.token, tokens.refreshToken, () =>
-        t.handleRequest(req, res, req.body)
-      );
-    } catch (err) {
-      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
-    }
-  });
-
-  app.get("/", async (req, res) => {
-    try {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      const tokens = resolveStreamTokens(req, sessionId);
-      const transport = sessionId ? streamSessions.get(sessionId) : undefined;
-      if (!transport) {
-        res.status(404).json({ error: "Session not found. Send a POST request first." });
-        return;
-      }
-      await runWithToken(tokens.token, tokens.refreshToken, () =>
-        transport.handleRequest(req, res)
-      );
-    } catch (err) {
-      if (!res.headersSent) res.status(401).json({ error: (err as Error).message });
-    }
-  });
-
-  app.delete("/", async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (sessionId) {
-      const transport = streamSessions.get(sessionId);
-      if (transport) {
-        await transport.close();
-        streamSessions.delete(sessionId);
-        streamTokens.delete(sessionId);
-      }
-    }
-    res.status(204).send();
-  });
-
-  // ---------------------------------------------------------------------------
   // OAuth discovery + health
   // ---------------------------------------------------------------------------
-
-  // OAuth 2.0 Protected Resource Metadata (RFC 9728)
-  // Claude Desktop probes this before falling back to oauth-authorization-server.
-  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
-    const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
-    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
-    res.json({
-      resource: base,
-      authorization_servers: [oauthBase],
-    });
-  });
 
   // OAuth 2.0 Authorization Server Metadata (RFC 8414)
   // Claude Code reads this to discover Hydra's auth/token endpoints and
