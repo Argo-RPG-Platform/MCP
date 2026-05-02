@@ -47,6 +47,14 @@ const WRITE_SAFE = {
   openWorldHint: false,
 };
 
+// OAuth scope requirements per tool, surfaced via the spec-supported `_meta`
+// extension point on each tool descriptor. MCP clients that read tools/list
+// before requesting consent can use this to know which OAuth scope each
+// tool needs.
+const READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.read"] }] };
+const WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.write"] }] };
+const NO_META = { securitySchemes: [] as Array<{ type: string; scopes: string[] }> };
+
 function toUserMessage(err: unknown): string {
   if (err instanceof ArgoApiError) {
     switch (err.status) {
@@ -83,6 +91,7 @@ export function createServer(): McpServer {
         "campaign ID — it returns all campaign IDs and names you can then use with other tools.",
       inputSchema: listCampaignsInputSchema.shape,
       annotations: READ_ONLY,
+      _meta: READ_META,
     },
     () =>
       runTool(
@@ -106,6 +115,7 @@ export function createServer(): McpServer {
         "Requires campaign.read scope.",
       inputSchema: getCampaignInputSchema.shape,
       annotations: READ_ONLY,
+      _meta: READ_META,
     },
     (input) =>
       runTool(
@@ -124,6 +134,7 @@ export function createServer(): McpServer {
         "(e.g. 'NPC of type faction', 'completed quest') so you know which extra fields to include.",
       inputSchema: describeMnemonTypesInputSchema.shape,
       annotations: READ_ONLY,
+      _meta: NO_META,
     },
     () =>
       runTool(
@@ -140,6 +151,7 @@ export function createServer(): McpServer {
         "Requires campaign.read scope.",
       inputSchema: listMnemonsInputSchema.shape,
       annotations: READ_ONLY,
+      _meta: READ_META,
     },
     (input) =>
       runTool(
@@ -161,6 +173,7 @@ export function createServer(): McpServer {
         "Requires campaign.read scope.",
       inputSchema: getMnemonInputSchema.shape,
       annotations: READ_ONLY,
+      _meta: READ_META,
     },
     (input) =>
       runTool(
@@ -181,6 +194,7 @@ export function createServer(): McpServer {
         "Call describe_mnemon_types for the full field catalog.",
       inputSchema: createMnemonInputSchema.shape,
       annotations: WRITE_SAFE,
+      _meta: WRITE_META,
     },
     (input) =>
       runTool(
@@ -200,6 +214,7 @@ export function createServer(): McpServer {
         "Requires campaign.write scope (only available when the GM granted write access).",
       inputSchema: updateMnemonInputSchema.shape,
       annotations: WRITE_SAFE,
+      _meta: WRITE_META,
     },
     (input) =>
       runTool(
