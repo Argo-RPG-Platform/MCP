@@ -217,7 +217,7 @@ export async function startHttpServer(): Promise<void> {
       // DCR endpoint — returns the shared PKCE public client so tool scanners
       // (e.g. ChatGPT Scan Tools) can authenticate without a pre-registered secret.
       registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
-      scopes_supported: ["openid", "offline", "offline_access", "campaign.read", "campaign.write"],
+      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
@@ -238,7 +238,7 @@ export async function startHttpServer(): Promise<void> {
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      scope: "openid offline offline_access campaign.read campaign.write",
+      scope: "openid offline_access campaign.read campaign.write",
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
       token_endpoint: `${oauthBase}/oauth2/token`,
     });
