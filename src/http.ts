@@ -251,6 +251,21 @@ export async function startHttpServer(): Promise<void> {
     res.redirect(301, `${oauthBase}/.well-known/openid-configuration`);
   });
 
+  // OAuth 2.0 Protected Resource Metadata (RFC 9728).
+  // Lets MCP clients (Claude, ChatGPT) discover which authorization server
+  // protects this resource and what scopes are valid.
+  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+    const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.json({
+      resource: base,
+      authorization_servers: [oauthBase],
+      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
+      bearer_methods_supported: ["header"],
+      resource_documentation: "https://app.argo.games/docs/mcp",
+    });
+  });
+
   // ChatGPT domain verification (set OPENAI_CHALLENGE_TOKEN env var in Cloud Run)
   app.get("/.well-known/openai-apps-challenge", (_req, res) => {
     const token = process.env.OPENAI_CHALLENGE_TOKEN ?? "";
