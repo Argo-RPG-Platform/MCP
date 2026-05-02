@@ -24,6 +24,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
+import { isJwtValidationEnabled, JwtValidationError, validateBearer } from "./jwt.js";
 
 interface SessionTokens {
   token: string;
@@ -73,6 +74,23 @@ function tryExtractTokens(req: express.Request): SessionTokens | null {
   if (!token) return null;
   const refreshToken = (req.headers["x-refresh-token"] as string | undefined) ?? null;
   return { token, refreshToken };
+}
+
+/**
+ * Validate the bearer token (Phase 3.7 — defense in depth).
+ *
+ * Verifies signature against Hydra's JWKS plus iss/aud/exp/nbf claims, so
+ * malformed or expired tokens never reach WebAPI. WebAPI is still
+ * authoritative for scope / Keto / grant_map decisions; this just rejects
+ * obviously-bad tokens early.
+ *
+ * No-ops when SKIP_JWT_VALIDATION=true (used by the stdio CLI flow where
+ * users paste tokens manually).
+ */
+async function ensureValidToken(t: SessionTokens | null): Promise<void> {
+  if (!t) return;
+  if (!isJwtValidationEnabled()) return;
+  await validateBearer(t.token);
 }
 
 // RFC 6750 / RFC 9728 standards-compliant 401 challenge.
@@ -145,6 +163,17 @@ export async function startHttpServer(): Promise<void> {
     }
 
     try {
+      await ensureValidToken(tokens);
+    } catch (err) {
+      if (err instanceof JwtValidationError) {
+        // Drop a cached invalid token so the next request can re-auth cleanly.
+        if (sessionId) streamTokens.delete(sessionId);
+        return sendAuthChallenge(res, "campaign.read", err.description);
+      }
+      throw err;
+    }
+
+    try {
       let transport = sessionId ? streamSessions.get(sessionId) : undefined;
       if (!transport) {
         transport = new StreamableHTTPServerTransport({
@@ -181,6 +210,15 @@ export async function startHttpServer(): Promise<void> {
     // cached when the session was opened (may be null if the session was
     // started by an unauthenticated discovery call).
     const tokens = (sessionId && streamTokens.get(sessionId)) || tryExtractTokens(req);
+    try {
+      await ensureValidToken(tokens);
+    } catch (err) {
+      if (err instanceof JwtValidationError) {
+        if (sessionId) streamTokens.delete(sessionId);
+        return sendAuthChallenge(res, "campaign.read", err.description);
+      }
+      throw err;
+    }
     try {
       const handle = () => transport.handleRequest(req, res);
       if (tokens) {
@@ -275,6 +313,16 @@ export async function startHttpServer(): Promise<void> {
 
       if (!tokens && !isPublicRpc(req.body)) {
         return sendAuthChallenge(res);
+      }
+
+      try {
+        await ensureValidToken(tokens);
+      } catch (err) {
+        if (err instanceof JwtValidationError) {
+          sseTokens.delete(sessionId!);
+          return sendAuthChallenge(res, "campaign.read", err.description);
+        }
+        throw err;
       }
 
       const handle = () => transport.handlePostMessage(req, res, req.body);
