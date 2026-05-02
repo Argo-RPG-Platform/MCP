@@ -303,8 +303,8 @@ export async function startHttpServer(): Promise<void> {
       token_endpoint: `${oauthBase}/oauth2/token`,
       userinfo_endpoint: `${oauthBase}/userinfo`,
       jwks_uri: `${oauthBase}/.well-known/jwks.json`,
-      // DCR endpoint — returns the shared PKCE public client so tool scanners
-      // (e.g. ChatGPT Scan Tools) can authenticate without a pre-registered secret.
+      // RFC 7591 dynamic client registration. ChatGPT (and any other MCP host
+      // using DCR) hits this endpoint per-user and gets a fresh PKCE client.
       registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
       scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
       response_types_supported: ["code"],
@@ -316,21 +316,46 @@ export async function startHttpServer(): Promise<void> {
     });
   });
 
-  // Minimal DCR endpoint (RFC 7591) — always returns the shared PKCE public client.
-  // No new clients are created in Hydra; this just gives tool scanners (ChatGPT,
-  // etc.) a client_id they can use for the PKCE auth flow without a secret.
-  app.post("/oauth/register", (_req, res) => {
+  // RFC 7591 Dynamic Client Registration — proxies to WebAPI which calls
+  // Hydra's admin /clients endpoint. ChatGPT requires a real DCR flow
+  // (no fixed client_id); WebAPI applies all the safety constraints
+  // (HTTPS-only redirects, scope allowlist, IP rate limit, public client only).
+  app.post("/oauth/register", async (req, res) => {
+    const webapiBase = process.env.WEBAPI_BASE ?? "https://app.argo.games";
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
-    const pkceClientId = process.env.PKCE_CLIENT_ID ?? "f3b0f4d4-c3ce-4278-8f1a-269d0444d6a9";
-    res.status(201).json({
-      client_id: pkceClientId,
-      token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      scope: "openid offline_access campaign.read campaign.write",
-      authorization_endpoint: `${oauthBase}/oauth2/auth`,
-      token_endpoint: `${oauthBase}/oauth2/token`,
-    });
+    try {
+      const upstream = await fetch(`${webapiBase}/api-public/hydra/dcr`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Forward client IP so WebAPI's per-IP rate limiter sees the real
+          // caller, not the MCP service's egress address.
+          "X-Forwarded-For":
+            (req.headers["x-forwarded-for"] as string | undefined) ??
+            req.socket.remoteAddress ??
+            "",
+        },
+        body: JSON.stringify(req.body ?? {}),
+      });
+      const payload = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!upstream.ok) {
+        res.status(upstream.status).json(payload);
+        return;
+      }
+      // Augment the RFC 7591 response with the AS endpoints so naive clients
+      // that don't fetch /.well-known/oauth-authorization-server still work.
+      res.status(201).json({
+        ...payload,
+        authorization_endpoint: `${oauthBase}/oauth2/auth`,
+        token_endpoint: `${oauthBase}/oauth2/token`,
+      });
+    } catch (err) {
+      console.error("DCR proxy failed:", err);
+      res.status(502).json({
+        error: "registration_failed",
+        error_description: "MCP could not reach the registration endpoint.",
+      });
+    }
   });
 
   // OIDC Discovery — proxies Hydra's openid-configuration so ChatGPT (and other
