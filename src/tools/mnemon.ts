@@ -39,7 +39,89 @@ export interface MnemonEntry {
 export const describeMnemonTypesInputSchema = z.object({});
 
 const NPC_TYPE_VALUES = ["FACTION", "INDIVIDUAL"] as const;
-const RELATIONSHIP_LABELS = ["MEMBER", "ALLY", "ENEMY", "RIVAL"] as const;
+const RELATIONSHIP_LABELS = [
+  "MEMBER",
+  "ALLY",
+  "ENEMY",
+  "RIVAL",
+  "PARENT_OF",
+  "CONTAINS",
+  "LOCATED_IN",
+] as const;
+
+/**
+ * Valid (sourceType, label, targetType) triples. The MCP server publishes
+ * this matrix so the model can pick a relationship that actually fits the
+ * two mnemons it is connecting — instead of guessing and getting rejected.
+ *
+ * Direction: source is described as <label> of target. Read as:
+ *   "{source} {label} {target}"  e.g.  "Region PARENT_OF City".
+ */
+const RELATIONSHIP_MATRIX: ReadonlyArray<{
+  source: string;
+  label: typeof RELATIONSHIP_LABELS[number];
+  target: string;
+  description: string;
+}> = [
+  {
+    source: "Faction",
+    label: "MEMBER",
+    target: "NPC",
+    description: "An NPC belongs to this faction (FACTION-typed NPC contains INDIVIDUAL-typed NPCs).",
+  },
+  {
+    source: "Faction",
+    label: "ALLY",
+    target: "Faction",
+    description: "Two factions are allies. Bidirectional.",
+  },
+  {
+    source: "Faction",
+    label: "ENEMY",
+    target: "Faction",
+    description: "Source faction is hostile to the target faction. Directional.",
+  },
+  {
+    source: "Faction",
+    label: "RIVAL",
+    target: "Faction",
+    description: "Two factions compete without open hostility. Directional.",
+  },
+  {
+    source: "NPC",
+    label: "ALLY",
+    target: "NPC",
+    description: "Two NPCs are allies. Bidirectional.",
+  },
+  {
+    source: "NPC",
+    label: "ENEMY",
+    target: "NPC",
+    description: "Source NPC is hostile to the target NPC. Directional.",
+  },
+  {
+    source: "Location",
+    label: "PARENT_OF",
+    target: "Location",
+    description:
+      "Hierarchical containment of locations: source is the larger, more general place. " +
+      "Example: Region PARENT_OF City PARENT_OF District PARENT_OF Tavern. Directional.",
+  },
+  {
+    source: "Location",
+    label: "CONTAINS",
+    target: "NPC",
+    description: "An NPC is physically present at this location.",
+  },
+  {
+    source: "NPC",
+    label: "LOCATED_IN",
+    target: "Location",
+    description:
+      "An NPC is currently located at this place. Inverse perspective of " +
+      "Location CONTAINS NPC — pick whichever direction reads more naturally.",
+  },
+];
 
 export function describeMnemonTypes(): object {
   return {
@@ -134,11 +216,25 @@ export function describeMnemonTypes(): object {
       },
     ],
     commonFields: [
-      { name: "visibility", type: "string", description: "HIDDEN | INTERNAL | PUBLIC (default: INTERNAL)" },
+      {
+        name: "visibility",
+        type: "enum",
+        values: ["HIDDEN", "INTERNAL", "PUBLIC"],
+        description:
+          "HIDDEN: GM/co-GM only. INTERNAL: all party members (default). " +
+          "PUBLIC: visible on the campaign's public publication — requires the campaign to be published. " +
+          "Use the set_mnemon_visibility tool to change this after creation.",
+      },
       { name: "tags", type: "string[]", description: "Optional tag list." },
       { name: "content", type: "string", description: "Initial text content (stored as a paragraph block)." },
     ],
     relationshipLabels: RELATIONSHIP_LABELS,
+    relationships: RELATIONSHIP_MATRIX,
+    relationshipsHowTo:
+      "Use create_mnemon_relationship with the (source, label, target) triple from the relationships matrix. " +
+      "Direction matters for PARENT_OF, CONTAINS, LOCATED_IN, ENEMY, RIVAL. " +
+      "Example: to nest 'Tavern of the Rusty Anchor' inside 'Port City Veridia', " +
+      "create the relationship with source=<port-city-id>, label=PARENT_OF, target=<tavern-id>.",
   };
 }
 
@@ -460,5 +556,30 @@ export async function listMnemonRelationships(
 ): Promise<RelationshipsResponse> {
   return argoGet<RelationshipsResponse>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}/relationships`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Visibility — campaign.write (PUBLIC requires a published campaign)
+// ---------------------------------------------------------------------------
+
+export const setMnemonVisibilityInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  entryId: z.string().min(1).describe("Mnemon entry to update."),
+  visibility: z
+    .enum(["HIDDEN", "INTERNAL", "PUBLIC"])
+    .describe(
+      "HIDDEN = GM/co-GM only. INTERNAL = all party members. " +
+        "PUBLIC = visible on the campaign's public publication. " +
+        "PUBLIC requires the campaign to be published; otherwise the server returns a 409."
+    ),
+});
+
+export async function setMnemonVisibility(
+  input: z.infer<typeof setMnemonVisibilityInputSchema>
+): Promise<MnemonEntry> {
+  return argoPatch<MnemonEntry, { visibility: string }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}/visibility`,
+    { visibility: input.visibility }
   );
 }

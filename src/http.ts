@@ -413,7 +413,19 @@ export async function startHttpServer(): Promise<void> {
       // RFC 7591 dynamic client registration. ChatGPT (and any other MCP host
       // using DCR) hits this endpoint per-user and gets a fresh PKCE client.
       registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
-      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
+      scopes_supported: [
+        "openid",
+        "offline_access",
+        "campaign.read",
+        "campaign.write",
+        "campaign.create",
+        "guild.read",
+        "guild.write",
+        "guild.admin",
+        "friends.read",
+        "friends.write",
+        "invite.write",
+      ],
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
@@ -490,7 +502,19 @@ export async function startHttpServer(): Promise<void> {
     res.json({
       resource: base,
       authorization_servers: [base],
-      scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
+      scopes_supported: [
+        "openid",
+        "offline_access",
+        "campaign.read",
+        "campaign.write",
+        "campaign.create",
+        "guild.read",
+        "guild.write",
+        "guild.admin",
+        "friends.read",
+        "friends.write",
+        "invite.write",
+      ],
       bearer_methods_supported: ["header"],
       resource_documentation: "https://app.argo.games/docs/mcp",
     });
