@@ -123,7 +123,28 @@ async function ensureValidToken(t: SessionTokens | null): Promise<void> {
     await validateBearer(t.token);
   } catch (err) {
     if (process.env.MCP_DEBUG_AUTH === "true" && err instanceof JwtValidationError) {
-      console.log(`[debug-auth] JWT validation failed: ${err.description}`);
+      // Decode JWT payload (NOT verifying — purely for diagnosis). Log only
+      // the claims we care about; never log the raw token or signature.
+      let summary = "(could not decode payload)";
+      try {
+        const parts = t.token.split(".");
+        if (parts.length === 3) {
+          const payload = JSON.parse(
+            Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")
+          );
+          summary = JSON.stringify({
+            iss: payload.iss,
+            aud: payload.aud,
+            sub: payload.sub,
+            scope: payload.scope,
+            client_id: payload.client_id,
+            exp: payload.exp,
+          });
+        }
+      } catch { /* ignore */ }
+      console.log(
+        `[debug-auth] JWT validation failed: ${err.description} | claims=${summary} | expected iss='${process.env.HYDRA_ISSUER ?? "https://oauth.argo.games"}' aud='${process.env.MCP_AUDIENCE ?? "https://mcp.argo.games"}'`
+      );
     }
     throw err;
   }
