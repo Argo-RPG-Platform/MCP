@@ -77,6 +77,35 @@ function tryExtractTokens(req: express.Request): SessionTokens | null {
 }
 
 /**
+ * Diagnostic logger gated by MCP_DEBUG_AUTH=true. Logs:
+ *   - User-Agent, path, method
+ *   - Whether Authorization header is present + length + first/last 6 chars
+ *   - mcp-session-id presence
+ *   - JSON-RPC method (if body is a single RPC call)
+ *
+ * Token VALUE is never logged in full — only the prefix/suffix to confirm
+ * "something tokenish arrived" without leaking the bearer.
+ */
+function debugAuth(tag: string, req: express.Request, body?: unknown): void {
+  if (process.env.MCP_DEBUG_AUTH !== "true") return;
+  const auth = (req.headers["authorization"] ?? "") as string;
+  const ua = req.headers["user-agent"] ?? "";
+  const sid = req.headers["mcp-session-id"] ?? "(none)";
+  const method =
+    body && typeof body === "object" && typeof (body as { method?: unknown }).method === "string"
+      ? (body as { method: string }).method
+      : "(no-rpc-method)";
+  const tokenInfo = auth.startsWith("Bearer ")
+    ? `Bearer len=${auth.length - 7} head='${auth.slice(7, 13)}…' tail='…${auth.slice(-6)}'`
+    : auth
+      ? `non-bearer scheme: '${auth.slice(0, 12)}…'`
+      : "(no auth header)";
+  console.log(
+    `[debug-auth] tag=${tag} method=${req.method} path=${req.path} ua='${ua}' sid=${sid} rpc=${method} auth=${tokenInfo}`
+  );
+}
+
+/**
  * Validate the bearer token (Phase 3.7 — defense in depth).
  *
  * Verifies signature against Hydra's JWKS plus iss/aud/exp/nbf claims, so
@@ -90,7 +119,14 @@ function tryExtractTokens(req: express.Request): SessionTokens | null {
 async function ensureValidToken(t: SessionTokens | null): Promise<void> {
   if (!t) return;
   if (!isJwtValidationEnabled()) return;
-  await validateBearer(t.token);
+  try {
+    await validateBearer(t.token);
+  } catch (err) {
+    if (process.env.MCP_DEBUG_AUTH === "true" && err instanceof JwtValidationError) {
+      console.log(`[debug-auth] JWT validation failed: ${err.description}`);
+    }
+    throw err;
+  }
 }
 
 // RFC 6750 / RFC 9728 standards-compliant 401 challenge.
@@ -153,6 +189,7 @@ export async function startHttpServer(): Promise<void> {
 
   const handleStreamPost: express.RequestHandler = async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    debugAuth("stream-post", req, req.body);
     let tokens: SessionTokens | null;
     try {
       tokens = resolveStreamTokens(req, sessionId, req.body);
@@ -299,6 +336,7 @@ export async function startHttpServer(): Promise<void> {
   // POST /messages — ChatGPT sends client→server messages here.
   app.post("/messages", async (req, res) => {
     try {
+      debugAuth("sse-messages", req, req.body);
       const sessionId = req.query["sessionId"] as string | undefined;
       const transport = sessionId ? sseSessions.get(sessionId) : undefined;
       if (!transport) {
