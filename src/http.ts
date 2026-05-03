@@ -421,9 +421,16 @@ export async function startHttpServer(): Promise<void> {
   app.get("/.well-known/oauth-protected-resource", (_req, res) => {
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
     const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    // Advertise the MCP host as the authorization server so DCR-capable
+    // clients (ChatGPT) fetch our /.well-known/oauth-authorization-server,
+    // which republishes Hydra's auth/token endpoints AND adds our
+    // registration_endpoint. Hydra's own metadata has no DCR endpoint by
+    // design, so pointing clients directly at oauth.argo.games breaks DCR.
+    // The `issuer` inside our AS metadata still says oauth.argo.games, so
+    // JWT validation against tokens minted by Hydra is unaffected.
     res.json({
       resource: base,
-      authorization_servers: [oauthBase],
+      authorization_servers: [base],
       scopes_supported: ["openid", "offline_access", "campaign.read", "campaign.write"],
       bearer_methods_supported: ["header"],
       resource_documentation: "https://app.argo.games/docs/mcp",
