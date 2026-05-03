@@ -18,6 +18,8 @@ import {
   listCoGmsInputSchema,
   removeCoGm,
   removeCoGmInputSchema,
+  updateCampaign,
+  updateCampaignInputSchema,
   type Campaign,
   type CampaignSummary,
   type CoGm,
@@ -39,6 +41,8 @@ import {
   listMnemonsInputSchema,
   listMnemonRelationships,
   listMnemonRelationshipsInputSchema,
+  setMnemonVisibility,
+  setMnemonVisibilityInputSchema,
   updateMnemon,
   updateMnemonInputSchema,
   type BulkCreateMnemonResponse,
@@ -46,6 +50,44 @@ import {
   type Relationship,
   type RelationshipsResponse,
 } from "./tools/mnemon.js";
+import {
+  inviteUserByEmail,
+  inviteUserByEmailInputSchema,
+} from "./tools/invite.js";
+import {
+  acceptFriendRequest,
+  acceptFriendRequestInputSchema,
+  cancelFriendRequest,
+  cancelFriendRequestInputSchema,
+  listFriends,
+  listFriendsInputSchema,
+  listReceivedFriendRequests,
+  listReceivedFriendRequestsInputSchema,
+  listSentFriendRequests,
+  listSentFriendRequestsInputSchema,
+  rejectFriendRequest,
+  rejectFriendRequestInputSchema,
+  sendFriendRequest,
+  sendFriendRequestInputSchema,
+} from "./tools/friends.js";
+import {
+  addCampaignToGuild,
+  addCampaignToGuildInputSchema,
+  addGuildCalendarEvent,
+  addGuildCalendarEventInputSchema,
+  getGuild,
+  getGuildInputSchema,
+  inviteGuildMember,
+  inviteGuildMemberInputSchema,
+  listGuildMembers,
+  listGuildMembersInputSchema,
+  listGuilds,
+  listGuildsInputSchema,
+  removeGuildMember,
+  removeGuildMemberInputSchema,
+  setGuildMemberRole,
+  setGuildMemberRoleInputSchema,
+} from "./tools/guild.js";
 import {
   createSession,
   createSessionInputSchema,
@@ -81,6 +123,12 @@ const WRITE_DESTRUCTIVE = {
 const READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.read"] }] };
 const WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.write"] }] };
 const CREATE_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.create"] }] };
+const GUILD_READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["guild.read"] }] };
+const GUILD_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["guild.write"] }] };
+const GUILD_ADMIN_META = { securitySchemes: [{ type: "oauth2", scopes: ["guild.admin"] }] };
+const FRIENDS_READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["friends.read"] }] };
+const FRIENDS_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["friends.write"] }] };
+const INVITE_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["invite.write"] }] };
 const NO_META = { securitySchemes: [] as Array<{ type: string; scopes: string[] }> };
 
 function toUserMessage(err: unknown): string {
@@ -179,6 +227,33 @@ export function createServer(): McpServer {
           content: [{
             type: "text",
             text: `Created campaign: ${campaign.campaignName} (id: ${campaign.id})\n\n${json(campaign)}`,
+          }],
+        })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Campaign — update (campaign.write)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "update_campaign",
+    {
+      description:
+        "Update a campaign's display name and/or description. Both fields optional — only " +
+        "supplied fields are changed; pass an empty string to clear the description. " +
+        "GMs and co-GMs can call this; rule-system swaps remain WebApp-only.",
+      inputSchema: updateCampaignInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => updateCampaign(input),
+        (campaign) => ({
+          content: [{
+            type: "text",
+            text: `Updated campaign ${campaign.id}: ${campaign.campaignName}\n\n${json(campaign)}`,
           }],
         })
       )
@@ -413,6 +488,30 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "set_mnemon_visibility",
+    {
+      description:
+        "Set the visibility of a mnemon entry. " +
+        "HIDDEN = GM/co-GM only. INTERNAL = all party members. " +
+        "PUBLIC = visible on the campaign's public publication; " +
+        "the server returns 409 if the campaign is not yet published.",
+      inputSchema: setMnemonVisibilityInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => setMnemonVisibility(input),
+        (entry) => ({
+          content: [{
+            type: "text",
+            text: `Set visibility of ${entry.entryId} (${entry.title}) to ${input.visibility}.`,
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
     "delete_mnemon_relationship",
     {
       description: "Delete a relationship by id.",
@@ -500,6 +599,323 @@ export function createServer(): McpServer {
       runTool(
         () => updateSession(input),
         (s: CampaignSession) => ({ content: [{ type: "text", text: `Updated session ${s.id}.` }] })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Guild — read (guild.read)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "list_guilds",
+    {
+      description:
+        "List the guilds the current user belongs to, with role (Owner/Admin/Member), " +
+        "member count, and campaign count. Requires the guild.read scope.",
+      inputSchema: listGuildsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: GUILD_READ_META,
+    },
+    () =>
+      runTool(
+        () => listGuilds(),
+        (guilds) => ({
+          content: [{
+            type: "text",
+            text: guilds.length === 0
+              ? "You are not a member of any guilds."
+              : json(guilds),
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
+    "get_guild",
+    {
+      description: "Retrieve full details of a guild (members, campaigns, calendar metadata).",
+      inputSchema: getGuildInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: GUILD_READ_META,
+    },
+    (input) =>
+      runTool(
+        () => getGuild(input),
+        (guild) => ({ content: [{ type: "text", text: json(guild) }] })
+      )
+  );
+
+  server.registerTool(
+    "list_guild_members",
+    {
+      description: "List the members of a guild (id, role, status, invitedAt, joinedAt).",
+      inputSchema: listGuildMembersInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: GUILD_READ_META,
+    },
+    (input) =>
+      runTool(
+        () => listGuildMembers(input),
+        (members) => ({
+          content: [{
+            type: "text",
+            text: members.length === 0 ? "Guild has no members." : json(members),
+          }],
+        })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Guild — member-level write (guild.write)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "add_campaign_to_guild",
+    {
+      description:
+        "Add a campaign to a guild. Any active member of the guild can do this; " +
+        "the calling user must be the campaign's GM (enforced server-side).",
+      inputSchema: addCampaignToGuildInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: GUILD_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => addCampaignToGuild(input),
+        () => ({
+          content: [{
+            type: "text",
+            text: `Added campaign ${input.campaignId} to guild ${input.guildId}.`,
+          }],
+        })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Guild — admin (guild.admin)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "invite_guild_member",
+    {
+      description: "Invite a user to join the guild. Owner/Admin only.",
+      inputSchema: inviteGuildMemberInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: GUILD_ADMIN_META,
+    },
+    (input) =>
+      runTool(
+        () => inviteGuildMember(input),
+        () => ({ content: [{ type: "text", text: `Invited ${input.userId} to guild ${input.guildId}.` }] })
+      )
+  );
+
+  server.registerTool(
+    "remove_guild_member",
+    {
+      description: "Remove a member from the guild. Owner/Admin only.",
+      inputSchema: removeGuildMemberInputSchema.shape,
+      annotations: WRITE_DESTRUCTIVE,
+      _meta: GUILD_ADMIN_META,
+    },
+    (input) =>
+      runTool(
+        () => removeGuildMember(input),
+        () => ({ content: [{ type: "text", text: `Removed ${input.userId} from guild ${input.guildId}.` }] })
+      )
+  );
+
+  server.registerTool(
+    "set_guild_member_role",
+    {
+      description:
+        "Change a guild member's role to Owner, Admin, or Member. Owner/Admin only. " +
+        "Note that promoting another user to Owner transfers the guild — confirm with the user first.",
+      inputSchema: setGuildMemberRoleInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: GUILD_ADMIN_META,
+    },
+    (input) =>
+      runTool(
+        () => setGuildMemberRole(input),
+        () => ({
+          content: [{
+            type: "text",
+            text: `Set ${input.userId} role to ${input.role} in guild ${input.guildId}.`,
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
+    "add_guild_calendar_event",
+    {
+      description:
+        "Add a new event to the guild's shared calendar. Owner/Admin only. " +
+        "startDateTime / endDateTime are ISO-8601 (e.g. 2026-06-12T19:00:00).",
+      inputSchema: addGuildCalendarEventInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: GUILD_ADMIN_META,
+    },
+    (input) =>
+      runTool(
+        () => addGuildCalendarEvent(input),
+        (resp) => ({
+          content: [{
+            type: "text",
+            text: `Created calendar event ${resp.id} in guild ${input.guildId}.`,
+          }],
+        })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Friends (friends.read / friends.write)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "list_friends",
+    {
+      description: "List the current user's accepted friends.",
+      inputSchema: listFriendsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FRIENDS_READ_META,
+    },
+    () =>
+      runTool(
+        () => listFriends(),
+        (friends) => ({
+          content: [{
+            type: "text",
+            text: friends.length === 0 ? "You have no friends yet." : json(friends),
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
+    "list_sent_friend_requests",
+    {
+      description: "List outgoing friend requests that are still pending.",
+      inputSchema: listSentFriendRequestsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FRIENDS_READ_META,
+    },
+    () =>
+      runTool(
+        () => listSentFriendRequests(),
+        (reqs) => ({
+          content: [{
+            type: "text",
+            text: reqs.length === 0 ? "No pending sent requests." : json(reqs),
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
+    "list_received_friend_requests",
+    {
+      description: "List incoming friend requests awaiting your response.",
+      inputSchema: listReceivedFriendRequestsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FRIENDS_READ_META,
+    },
+    () =>
+      runTool(
+        () => listReceivedFriendRequests(),
+        (reqs) => ({
+          content: [{
+            type: "text",
+            text: reqs.length === 0 ? "No pending received requests." : json(reqs),
+          }],
+        })
+      )
+  );
+
+  server.registerTool(
+    "send_friend_request",
+    {
+      description: "Send a friend request to another Argo user.",
+      inputSchema: sendFriendRequestInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: FRIENDS_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => sendFriendRequest(input),
+        () => ({ content: [{ type: "text", text: `Friend request sent to ${input.userId}.` }] })
+      )
+  );
+
+  server.registerTool(
+    "accept_friend_request",
+    {
+      description: "Accept an incoming friend request from the given user.",
+      inputSchema: acceptFriendRequestInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: FRIENDS_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => acceptFriendRequest(input),
+        () => ({ content: [{ type: "text", text: `Accepted friend request from ${input.userId}.` }] })
+      )
+  );
+
+  server.registerTool(
+    "reject_friend_request",
+    {
+      description: "Reject an incoming friend request from the given user.",
+      inputSchema: rejectFriendRequestInputSchema.shape,
+      annotations: WRITE_DESTRUCTIVE,
+      _meta: FRIENDS_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => rejectFriendRequest(input),
+        () => ({ content: [{ type: "text", text: `Rejected friend request from ${input.userId}.` }] })
+      )
+  );
+
+  server.registerTool(
+    "cancel_friend_request",
+    {
+      description: "Cancel a friend request you previously sent.",
+      inputSchema: cancelFriendRequestInputSchema.shape,
+      annotations: WRITE_DESTRUCTIVE,
+      _meta: FRIENDS_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => cancelFriendRequest(input),
+        () => ({ content: [{ type: "text", text: `Cancelled friend request to ${input.userId}.` }] })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Invites (invite.write)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "invite_user_by_email",
+    {
+      description:
+        "Send Argo email invitations to up to 20 addresses on behalf of the current user. " +
+        "Recipients receive a sign-up link. No campaign or guild context is required.",
+      inputSchema: inviteUserByEmailInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: INVITE_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => inviteUserByEmail(input),
+        (resp) => ({
+          content: [{
+            type: "text",
+            text: `Invite results:\n${json(resp.results)}`,
+          }],
+        })
       )
   );
 

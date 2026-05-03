@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { argoDelete, argoGet, argoPost } from "../client.js";
+import { argoDelete, argoGet, argoPatch, argoPost } from "../client.js";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors WebAPI McpCampaignDTO)
@@ -88,6 +88,46 @@ export async function createCampaign(
     ...(input.gameSystemSlug !== undefined && { gameSystemSlug: input.gameSystemSlug }),
   };
   return argoPost<CampaignSummary, CreateCampaignPayload>("/mcp/v1/campaigns", payload);
+}
+
+// ---------------------------------------------------------------------------
+// Update — campaign.write (GM or co-GM)
+// ---------------------------------------------------------------------------
+
+export const updateCampaignInputSchema = z.object({
+  campaignId: z.string().min(1).describe("ID of the campaign to update."),
+  campaignName: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("New display name. Omit to leave unchanged."),
+  campaignDescription: z
+    .string()
+    .max(5000)
+    .optional()
+    .describe(
+      "New description (setting, tone, premise). Omit to leave unchanged. " +
+        "Pass an empty string to clear the existing description."
+    ),
+});
+
+interface UpdateCampaignPayload {
+  campaignName?: string;
+  campaignDescription?: string;
+}
+
+export async function updateCampaign(
+  input: z.infer<typeof updateCampaignInputSchema>
+): Promise<Campaign> {
+  const payload: UpdateCampaignPayload = {};
+  if (input.campaignName !== undefined) payload.campaignName = input.campaignName;
+  if (input.campaignDescription !== undefined)
+    payload.campaignDescription = input.campaignDescription;
+  return argoPatch<Campaign, UpdateCampaignPayload>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}`,
+    payload
+  );
 }
 
 // ---------------------------------------------------------------------------
