@@ -60,10 +60,10 @@ describe("createMnemon", () => {
 
   it("sends npcType for NPC mnemons", async () => {
     argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "The Faction", type: "NPC", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "The Faction", type: "NPC", npcType: "faction" });
+    await createMnemon({ campaignId: CAMPAIGN, title: "The Faction", type: "NPC", npcType: "FACTION" });
     expect(argoPost).toHaveBeenCalledWith(
       expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ type: "NPC", npcType: "faction" })
+      expect.objectContaining({ type: "NPC", npcType: "FACTION" })
     );
   });
 
@@ -116,9 +116,9 @@ describe("createMnemon", () => {
 describe("updateMnemon", () => {
   it("sends only provided fields", async () => {
     argoPatch.mockResolvedValueOnce({ entryId: ENTRY, title: "Updated", type: "NPC", blocks: [] });
-    await updateMnemon({ campaignId: CAMPAIGN, entryId: ENTRY, npcType: "guard" });
+    await updateMnemon({ campaignId: CAMPAIGN, entryId: ENTRY, npcType: "INDIVIDUAL" });
     const payload = argoPatch.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.npcType).toBe("guard");
+    expect(payload.npcType).toBe("INDIVIDUAL");
     expect("title" in payload).toBe(false);
     expect("questStatus" in payload).toBe(false);
   });

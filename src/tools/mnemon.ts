@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { argoGet, argoPost, argoPatch } from "../client.js";
+import { argoDelete, argoGet, argoPost, argoPatch } from "../client.js";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors WebAPI McpMnemonSummaryDTO / McpMnemonDetailDTO)
@@ -18,20 +18,17 @@ export interface MnemonBlock {
   text: string;
 }
 
-/** Returned by the list endpoint — id, title, type only. */
 export interface MnemonSummary {
   entryId: string;
   title: string;
   type: string;
 }
 
-/** Returned by get / create / update — includes full block content. */
 export interface MnemonEntry {
   entryId: string;
   title: string;
   type: string;
   blocks: MnemonBlock[];
-  /** Type-specific fields stored on the entry (e.g. npcType for NPC mnemons). */
   typeProperties?: Record<string, unknown>;
 }
 
@@ -41,42 +38,72 @@ export interface MnemonEntry {
 
 export const describeMnemonTypesInputSchema = z.object({});
 
-/** Returns a static catalog of all mnemon types and their type-specific fields. */
+const NPC_TYPE_VALUES = ["FACTION", "INDIVIDUAL"] as const;
+const RELATIONSHIP_LABELS = ["MEMBER", "ALLY", "ENEMY", "RIVAL"] as const;
+
 export function describeMnemonTypes(): object {
   return {
     types: [
       {
         type: "NPC",
-        description: "A non-player character. Use npcType to classify it (e.g. faction, merchant, guard, villain).",
+        description:
+          "A non-player character. npcType must be FACTION (an organization) or INDIVIDUAL " +
+          "(a person). FACTIONs use memberNpcEntryIds; INDIVIDUALs use affiliationEntryIds. " +
+          "Both project into MEMBER relationships server-side.",
         typeSpecificFields: [
-          { name: "npcType", type: "string", description: "NPC archetype (e.g. 'faction', 'merchant', 'guard', 'villain')" },
-          { name: "sheetId", type: "string", description: "Reference to a character sheet" },
-          { name: "primaryLocationEntryId", type: "string", description: "entryId of the NPC's home location mnemon" },
+          { name: "npcType", type: "enum", values: NPC_TYPE_VALUES, required: true },
+          { name: "sheetId", type: "string", description: "Reference to a character sheet." },
+          { name: "primaryLocationEntryId", type: "string", description: "Home location entryId." },
+          { name: "memberNpcEntryIds", type: "string[]", description: "FACTION only: members of this faction." },
+          { name: "affiliationEntryIds", type: "string[]", description: "INDIVIDUAL only: factions this person belongs to." },
         ],
       },
       {
         type: "Location",
         description: "A place in the world — a city, dungeon, tavern, etc.",
         typeSpecificFields: [
-          { name: "levelId", type: "string", description: "Unreal Engine level reference" },
+          { name: "levelId", type: "string", description: "Unreal Engine level reference." },
         ],
       },
       {
         type: "Quest",
         description: "A quest or mission the party can undertake.",
         typeSpecificFields: [
-          { name: "questStatus", type: "string", description: "Status: 'active' | 'completed' | 'failed'" },
-          { name: "issuerNpcEntryId", type: "string", description: "entryId of the NPC who issued the quest" },
-          { name: "issuerText", type: "string", description: "Opening dialogue from the quest issuer" },
-          { name: "repeatable", type: "boolean", description: "Whether the quest can be repeated" },
+          { name: "questStatus", type: "string", description: "active | completed | failed" },
+          { name: "issuerNpcEntryId", type: "string" },
+          { name: "issuerText", type: "string" },
+          { name: "repeatable", type: "boolean" },
+          { name: "expiresAt", type: "string", description: "ISO-8601 instant." },
+          { name: "subQuestEntryIds", type: "string[]" },
+          { name: "relatedNpcEntryIds", type: "string[]" },
+          { name: "relatedLocationEntryIds", type: "string[]" },
+        ],
+      },
+      {
+        type: "Lore",
+        description: "World lore or background information.",
+        typeSpecificFields: [
+          { name: "relatedEntryIds", type: "string[]" },
+        ],
+      },
+      {
+        type: "Archive",
+        description: "Archived lore entry.",
+        typeSpecificFields: [
+          { name: "relatedEntryIds", type: "string[]" },
         ],
       },
       {
         type: "Journal",
         description: "A session journal entry.",
         typeSpecificFields: [
-          { name: "date", type: "string", description: "In-world date" },
-          { name: "sessionNumber", type: "integer", description: "Session number" },
+          { name: "date", type: "string" },
+          { name: "sessionNumber", type: "integer" },
+          { name: "involvedNpcEntryIds", type: "string[]" },
+          { name: "involvedLocationEntryIds", type: "string[]" },
+          { name: "involvedCharacterIds", type: "string[]" },
+          { name: "outcome", type: "string" },
+          { name: "consequenceEntryIds", type: "string[]" },
         ],
       },
       {
@@ -85,26 +112,20 @@ export function describeMnemonTypes(): object {
         typeSpecificFields: [
           { name: "date", type: "string" },
           { name: "sessionNumber", type: "integer" },
+          { name: "attendeeCharacterIds", type: "string[]" },
+          { name: "attendeeNpcEntryIds", type: "string[]" },
+          { name: "linkedQuestEntryIds", type: "string[]" },
+          { name: "linkedLocationEntryIds", type: "string[]" },
         ],
       },
       {
         type: "Player",
         description: "A player-facing mnemon (character notes, party sheet, etc.).",
         typeSpecificFields: [
-          { name: "playerKind", type: "string", description: "PARTY | CHARACTER | NOTES" },
+          { name: "playerKind", type: "enum", values: ["PARTY", "CHARACTER", "NOTES"] },
           { name: "partyId", type: "string" },
           { name: "characterId", type: "string" },
         ],
-      },
-      {
-        type: "Lore",
-        description: "World lore or background information.",
-        typeSpecificFields: [],
-      },
-      {
-        type: "Archive",
-        description: "Archived lore entry.",
-        typeSpecificFields: [],
       },
       {
         type: "Custom",
@@ -114,9 +135,10 @@ export function describeMnemonTypes(): object {
     ],
     commonFields: [
       { name: "visibility", type: "string", description: "HIDDEN | INTERNAL | PUBLIC (default: INTERNAL)" },
-      { name: "tags", type: "string[]", description: "Optional tag list" },
-      { name: "content", type: "string", description: "Initial text content (stored as a paragraph block)" },
+      { name: "tags", type: "string[]", description: "Optional tag list." },
+      { name: "content", type: "string", description: "Initial text content (stored as a paragraph block)." },
     ],
+    relationshipLabels: RELATIONSHIP_LABELS,
   };
 }
 
@@ -125,10 +147,7 @@ export function describeMnemonTypes(): object {
 // ---------------------------------------------------------------------------
 
 export const listMnemonsInputSchema = z.object({
-  campaignId: z
-    .string()
-    .min(1)
-    .describe("ID of the campaign whose mnemon entries to list."),
+  campaignId: z.string().min(1).describe("ID of the campaign whose mnemon entries to list."),
 });
 
 export async function listMnemons(
@@ -153,196 +172,293 @@ export async function getMnemon(
 }
 
 // ---------------------------------------------------------------------------
-// Write tools (grant_write required)
+// Shared payload schema for create / bulk / update
 // ---------------------------------------------------------------------------
 
-export const createMnemonInputSchema = z.object({
-  campaignId: z.string().min(1).describe("Campaign ID."),
-  title: z.string().min(1).describe("Title of the new mnemon entry."),
-  type: z.string().optional().describe(
-    "Mnemon type. Valid values: NPC, Location, Quest, Lore, Archive, Journal, " +
-    "SessionSummary, Player, Custom (default). " +
-    "Call describe_mnemon_types to see which extra fields each type supports."
+const stringArray = () => z.array(z.string()).optional();
+
+const createMnemonItemSchema = z.object({
+  title: z.string().min(1).describe("Title of the mnemon entry."),
+  type: z
+    .string()
+    .optional()
+    .describe(
+      "Mnemon type: NPC, Location, Quest, Lore, Archive, Journal, SessionSummary, Player, " +
+        "Custom (default). Call describe_mnemon_types for per-type fields."
+    ),
+  content: z.string().optional().describe("Initial text content (paragraph block)."),
+  visibility: z
+    .enum(["HIDDEN", "INTERNAL", "PUBLIC"])
+    .optional()
+    .describe("Visibility: HIDDEN/INTERNAL = GM only, PUBLIC = all players."),
+  tags: stringArray(),
+
+  // NPC
+  npcType: z
+    .enum(NPC_TYPE_VALUES)
+    .optional()
+    .describe("NPC subtype, REQUIRED when type=NPC. FACTION = organization; INDIVIDUAL = person."),
+  sheetId: z.string().optional(),
+  primaryLocationEntryId: z.string().optional(),
+  memberNpcEntryIds: stringArray().describe(
+    "FACTION only: member NPC entryIds. Server projects into MEMBER relationships."
   ),
-  content: z.string().optional().describe("Initial text content (stored as a paragraph block)."),
-  visibility: z.enum(["HIDDEN", "INTERNAL", "PUBLIC"]).optional()
-    .describe("Visibility to players. HIDDEN = GM only, INTERNAL = GM only (default), PUBLIC = all players."),
-  tags: z.array(z.string()).optional().describe("Optional tag list."),
+  affiliationEntryIds: stringArray().describe(
+    "INDIVIDUAL only: faction entryIds this NPC belongs to. Server projects into MEMBER relationships."
+  ),
 
-  // NPC-specific
-  npcType: z.string().optional()
-    .describe("NPC archetype (type=NPC only). E.g. 'faction', 'merchant', 'guard', 'villain'."),
-  sheetId: z.string().optional()
-    .describe("Character sheet reference (type=NPC only)."),
-  primaryLocationEntryId: z.string().optional()
-    .describe("entryId of the NPC's home location mnemon (type=NPC only)."),
+  // Quest
+  questStatus: z.string().optional(),
+  issuerNpcEntryId: z.string().optional(),
+  issuerText: z.string().optional(),
+  repeatable: z.boolean().optional(),
+  expiresAt: z.string().optional(),
+  subQuestEntryIds: stringArray(),
+  relatedNpcEntryIds: stringArray(),
+  relatedLocationEntryIds: stringArray(),
 
-  // Quest-specific
-  questStatus: z.string().optional()
-    .describe("Quest status (type=Quest only). E.g. 'active', 'completed', 'failed'."),
-  issuerNpcEntryId: z.string().optional()
-    .describe("entryId of the NPC who issued the quest (type=Quest only)."),
-  issuerText: z.string().optional()
-    .describe("Opening dialogue from the quest issuer (type=Quest only)."),
-  repeatable: z.boolean().optional()
-    .describe("Whether the quest is repeatable (type=Quest only)."),
+  // Location
+  levelId: z.string().optional(),
 
-  // Location-specific
-  levelId: z.string().optional()
-    .describe("Unreal Engine level reference (type=Location only)."),
+  // Lore / Archive
+  relatedEntryIds: stringArray(),
 
-  // Journal / SessionSummary / MnemonEntry
-  date: z.string().optional()
-    .describe("In-world date (type=Journal, SessionSummary)."),
-  sessionNumber: z.number().int().optional()
-    .describe("Session number (type=Journal, SessionSummary)."),
+  // Journal / SessionSummary
+  date: z.string().optional(),
+  sessionNumber: z.number().int().optional(),
+  involvedNpcEntryIds: stringArray(),
+  involvedLocationEntryIds: stringArray(),
+  involvedCharacterIds: stringArray(),
+  outcome: z.string().optional(),
+  consequenceEntryIds: stringArray(),
+  attendeeCharacterIds: stringArray(),
+  attendeeNpcEntryIds: stringArray(),
+  linkedQuestEntryIds: stringArray(),
+  linkedLocationEntryIds: stringArray(),
 
-  // Player-specific
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional()
-    .describe("Player mnemon kind (type=Player only)."),
-  partyId: z.string().optional()
-    .describe("Party ID (type=Player only)."),
-  characterId: z.string().optional()
-    .describe("Character ID (type=Player only)."),
+  // Player
+  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
+  partyId: z.string().optional(),
+  characterId: z.string().optional(),
 });
 
-export interface CreateMnemonPayload {
+type CreateMnemonItem = z.infer<typeof createMnemonItemSchema>;
+
+interface CreateMnemonPayload {
   type: string;
   title: string;
   content?: string;
   visibility?: string;
   tags?: string[];
-  // NPC
   npcType?: string;
   sheetId?: string;
   primaryLocationEntryId?: string;
-  // Quest
+  memberNpcEntryIds?: string[];
+  affiliationEntryIds?: string[];
   questStatus?: string;
   issuerNpcEntryId?: string;
   issuerText?: string;
   repeatable?: boolean;
-  // Location
+  expiresAt?: string;
+  subQuestEntryIds?: string[];
+  relatedNpcEntryIds?: string[];
+  relatedLocationEntryIds?: string[];
   levelId?: string;
-  // Journal / session
+  relatedEntryIds?: string[];
   date?: string;
   sessionNumber?: number;
-  // Player
+  involvedNpcEntryIds?: string[];
+  involvedLocationEntryIds?: string[];
+  involvedCharacterIds?: string[];
+  outcome?: string;
+  consequenceEntryIds?: string[];
+  attendeeCharacterIds?: string[];
+  attendeeNpcEntryIds?: string[];
+  linkedQuestEntryIds?: string[];
+  linkedLocationEntryIds?: string[];
   playerKind?: string;
   partyId?: string;
   characterId?: string;
 }
+
+function buildCreatePayload(item: CreateMnemonItem): CreateMnemonPayload {
+  return {
+    type: item.type ?? "Custom",
+    title: item.title,
+    ...(item.content !== undefined && { content: item.content }),
+    ...(item.visibility !== undefined && { visibility: item.visibility }),
+    ...(item.tags !== undefined && { tags: item.tags }),
+    ...(item.npcType !== undefined && { npcType: item.npcType }),
+    ...(item.sheetId !== undefined && { sheetId: item.sheetId }),
+    ...(item.primaryLocationEntryId !== undefined && { primaryLocationEntryId: item.primaryLocationEntryId }),
+    ...(item.memberNpcEntryIds !== undefined && { memberNpcEntryIds: item.memberNpcEntryIds }),
+    ...(item.affiliationEntryIds !== undefined && { affiliationEntryIds: item.affiliationEntryIds }),
+    ...(item.questStatus !== undefined && { questStatus: item.questStatus }),
+    ...(item.issuerNpcEntryId !== undefined && { issuerNpcEntryId: item.issuerNpcEntryId }),
+    ...(item.issuerText !== undefined && { issuerText: item.issuerText }),
+    ...(item.repeatable !== undefined && { repeatable: item.repeatable }),
+    ...(item.expiresAt !== undefined && { expiresAt: item.expiresAt }),
+    ...(item.subQuestEntryIds !== undefined && { subQuestEntryIds: item.subQuestEntryIds }),
+    ...(item.relatedNpcEntryIds !== undefined && { relatedNpcEntryIds: item.relatedNpcEntryIds }),
+    ...(item.relatedLocationEntryIds !== undefined && { relatedLocationEntryIds: item.relatedLocationEntryIds }),
+    ...(item.levelId !== undefined && { levelId: item.levelId }),
+    ...(item.relatedEntryIds !== undefined && { relatedEntryIds: item.relatedEntryIds }),
+    ...(item.date !== undefined && { date: item.date }),
+    ...(item.sessionNumber !== undefined && { sessionNumber: item.sessionNumber }),
+    ...(item.involvedNpcEntryIds !== undefined && { involvedNpcEntryIds: item.involvedNpcEntryIds }),
+    ...(item.involvedLocationEntryIds !== undefined && { involvedLocationEntryIds: item.involvedLocationEntryIds }),
+    ...(item.involvedCharacterIds !== undefined && { involvedCharacterIds: item.involvedCharacterIds }),
+    ...(item.outcome !== undefined && { outcome: item.outcome }),
+    ...(item.consequenceEntryIds !== undefined && { consequenceEntryIds: item.consequenceEntryIds }),
+    ...(item.attendeeCharacterIds !== undefined && { attendeeCharacterIds: item.attendeeCharacterIds }),
+    ...(item.attendeeNpcEntryIds !== undefined && { attendeeNpcEntryIds: item.attendeeNpcEntryIds }),
+    ...(item.linkedQuestEntryIds !== undefined && { linkedQuestEntryIds: item.linkedQuestEntryIds }),
+    ...(item.linkedLocationEntryIds !== undefined && { linkedLocationEntryIds: item.linkedLocationEntryIds }),
+    ...(item.playerKind !== undefined && { playerKind: item.playerKind }),
+    ...(item.partyId !== undefined && { partyId: item.partyId }),
+    ...(item.characterId !== undefined && { characterId: item.characterId }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Create / bulk-create / update
+// ---------------------------------------------------------------------------
+
+export const createMnemonInputSchema = createMnemonItemSchema.extend({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+});
 
 export async function createMnemon(
   input: z.infer<typeof createMnemonInputSchema>
 ): Promise<MnemonEntry> {
-  const payload: CreateMnemonPayload = {
-    type: input.type ?? "Custom",
-    title: input.title,
-    ...(input.content !== undefined && { content: input.content }),
-    ...(input.visibility !== undefined && { visibility: input.visibility }),
-    ...(input.tags !== undefined && { tags: input.tags }),
-    // NPC
-    ...(input.npcType !== undefined && { npcType: input.npcType }),
-    ...(input.sheetId !== undefined && { sheetId: input.sheetId }),
-    ...(input.primaryLocationEntryId !== undefined && { primaryLocationEntryId: input.primaryLocationEntryId }),
-    // Quest
-    ...(input.questStatus !== undefined && { questStatus: input.questStatus }),
-    ...(input.issuerNpcEntryId !== undefined && { issuerNpcEntryId: input.issuerNpcEntryId }),
-    ...(input.issuerText !== undefined && { issuerText: input.issuerText }),
-    ...(input.repeatable !== undefined && { repeatable: input.repeatable }),
-    // Location
-    ...(input.levelId !== undefined && { levelId: input.levelId }),
-    // Journal / session
-    ...(input.date !== undefined && { date: input.date }),
-    ...(input.sessionNumber !== undefined && { sessionNumber: input.sessionNumber }),
-    // Player
-    ...(input.playerKind !== undefined && { playerKind: input.playerKind }),
-    ...(input.partyId !== undefined && { partyId: input.partyId }),
-    ...(input.characterId !== undefined && { characterId: input.characterId }),
-  };
+  const { campaignId, ...rest } = input;
   return argoPost<MnemonEntry, CreateMnemonPayload>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`,
-    payload
+    `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons`,
+    buildCreatePayload(rest)
   );
 }
 
-export const updateMnemonInputSchema = z.object({
+export const createMnemonsInputSchema = z.object({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  entryId: z.string().min(1).describe("Mnemon entry ID to update."),
-  title: z.string().optional().describe("New title (leave unset to keep existing)."),
-  content: z.string().optional().describe("New text content (replaces first paragraph block)."),
-  visibility: z.enum(["HIDDEN", "INTERNAL", "PUBLIC"]).optional()
-    .describe("New visibility level."),
-  tags: z.array(z.string()).optional().describe("Replace tag list."),
-
-  // NPC
-  npcType: z.string().optional().describe("NPC archetype (type=NPC only)."),
-  sheetId: z.string().optional().describe("Character sheet reference (type=NPC only)."),
-  primaryLocationEntryId: z.string().optional().describe("Home location entryId (type=NPC only)."),
-
-  // Quest
-  questStatus: z.string().optional().describe("Quest status (type=Quest only)."),
-  issuerNpcEntryId: z.string().optional().describe("Issuer NPC entryId (type=Quest only)."),
-  issuerText: z.string().optional().describe("Issuer dialogue (type=Quest only)."),
-  repeatable: z.boolean().optional().describe("Repeatable flag (type=Quest only)."),
-
-  // Location
-  levelId: z.string().optional().describe("Unreal level reference (type=Location only)."),
-
-  // Journal / SessionSummary
-  date: z.string().optional().describe("In-world date."),
-  sessionNumber: z.number().int().optional().describe("Session number."),
-
-  // Player
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional().describe("Player kind (type=Player only)."),
-  partyId: z.string().optional().describe("Party ID (type=Player only)."),
-  characterId: z.string().optional().describe("Character ID (type=Player only)."),
+  items: z
+    .array(createMnemonItemSchema)
+    .min(1)
+    .max(50)
+    .describe("Up to 50 mnemon entries to create in one call."),
 });
 
-export interface UpdateMnemonPayload {
+export interface BulkCreateMnemonResult {
+  index: number;
+  success: boolean;
+  entryId?: string;
   title?: string;
-  content?: string;
-  visibility?: string;
-  tags?: string[];
-  npcType?: string;
-  sheetId?: string;
-  primaryLocationEntryId?: string;
-  questStatus?: string;
-  issuerNpcEntryId?: string;
-  issuerText?: string;
-  repeatable?: boolean;
-  levelId?: string;
-  date?: string;
-  sessionNumber?: number;
-  playerKind?: string;
-  partyId?: string;
-  characterId?: string;
+  error?: string;
 }
+
+export interface BulkCreateMnemonResponse {
+  results: BulkCreateMnemonResult[];
+}
+
+export async function createMnemons(
+  input: z.infer<typeof createMnemonsInputSchema>
+): Promise<BulkCreateMnemonResponse> {
+  return argoPost<BulkCreateMnemonResponse, { items: CreateMnemonPayload[] }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/bulk`,
+    { items: input.items.map(buildCreatePayload) }
+  );
+}
+
+export const updateMnemonInputSchema = createMnemonItemSchema.partial().extend({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  entryId: z.string().min(1).describe("Mnemon entry ID to update."),
+});
 
 export async function updateMnemon(
   input: z.infer<typeof updateMnemonInputSchema>
 ): Promise<MnemonEntry> {
-  const payload: UpdateMnemonPayload = {
-    ...(input.title !== undefined && { title: input.title }),
-    ...(input.content !== undefined && { content: input.content }),
-    ...(input.visibility !== undefined && { visibility: input.visibility }),
-    ...(input.tags !== undefined && { tags: input.tags }),
-    ...(input.npcType !== undefined && { npcType: input.npcType }),
-    ...(input.sheetId !== undefined && { sheetId: input.sheetId }),
-    ...(input.primaryLocationEntryId !== undefined && { primaryLocationEntryId: input.primaryLocationEntryId }),
-    ...(input.questStatus !== undefined && { questStatus: input.questStatus }),
-    ...(input.issuerNpcEntryId !== undefined && { issuerNpcEntryId: input.issuerNpcEntryId }),
-    ...(input.issuerText !== undefined && { issuerText: input.issuerText }),
-    ...(input.repeatable !== undefined && { repeatable: input.repeatable }),
-    ...(input.levelId !== undefined && { levelId: input.levelId }),
-    ...(input.date !== undefined && { date: input.date }),
-    ...(input.sessionNumber !== undefined && { sessionNumber: input.sessionNumber }),
-    ...(input.playerKind !== undefined && { playerKind: input.playerKind }),
-    ...(input.partyId !== undefined && { partyId: input.partyId }),
-    ...(input.characterId !== undefined && { characterId: input.characterId }),
-  };
-  return argoPatch<MnemonEntry, UpdateMnemonPayload>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}`,
+  const { campaignId, entryId, type: _type, ...rest } = input;
+  // Update payload mirrors create but type cannot be changed.
+  const payload: Partial<CreateMnemonPayload> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== undefined) {
+      (payload as Record<string, unknown>)[key] = value;
+    }
+  }
+  return argoPatch<MnemonEntry, Partial<CreateMnemonPayload>>(
+    `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/${encodeURIComponent(entryId)}`,
     payload
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Relationships
+// ---------------------------------------------------------------------------
+
+export interface Relationship {
+  relationshipId: string;
+  sourceId: string;
+  targetId: string;
+  label: string;
+  color?: string;
+  direction?: string;
+}
+
+export interface LinkedEntry {
+  entryId: string;
+  title: string;
+  type: string;
+  relationshipTypes: string[];
+}
+
+export interface RelationshipsResponse {
+  outgoing: Relationship[];
+  incoming: Relationship[];
+  linked: LinkedEntry[];
+}
+
+export const createMnemonRelationshipInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  sourceEntryId: z.string().min(1).describe("entryId of the source mnemon (e.g. the faction)."),
+  targetEntryId: z.string().min(1).describe("entryId of the target mnemon (e.g. the NPC member)."),
+  label: z
+    .enum(RELATIONSHIP_LABELS)
+    .describe("Relationship type. MEMBER and ALLY are bidirectional; ENEMY and RIVAL are directional."),
+  color: z.string().optional().describe("Optional UI color/note."),
+  direction: z.string().optional().describe("Override default direction."),
+});
+
+export async function createMnemonRelationship(
+  input: z.infer<typeof createMnemonRelationshipInputSchema>
+): Promise<Relationship> {
+  const { campaignId, ...body } = input;
+  return argoPost<Relationship, typeof body>(
+    `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/relationships`,
+    body
+  );
+}
+
+export const deleteMnemonRelationshipInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  relationshipId: z.string().min(1).describe("Relationship ID to delete."),
+});
+
+export async function deleteMnemonRelationship(
+  input: z.infer<typeof deleteMnemonRelationshipInputSchema>
+): Promise<void> {
+  await argoDelete(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/relationships/${encodeURIComponent(input.relationshipId)}`
+  );
+}
+
+export const listMnemonRelationshipsInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  entryId: z.string().min(1).describe("Mnemon entry whose relationships to list."),
+});
+
+export async function listMnemonRelationships(
+  input: z.infer<typeof listMnemonRelationshipsInputSchema>
+): Promise<RelationshipsResponse> {
+  return argoGet<RelationshipsResponse>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}/relationships`
   );
 }

@@ -138,3 +138,7 @@ export async function argoPatch<TRes, TBody>(
     body: JSON.stringify(body),
   });
 }
+
+export async function argoDelete<TRes = void>(path: string): Promise<TRes> {
+  return argoFetch<TRes>(path, { method: "DELETE" });
+}
