@@ -369,7 +369,9 @@ export async function startHttpServer(): Promise<void> {
   // (no fixed client_id); WebAPI applies all the safety constraints
   // (HTTPS-only redirects, scope allowlist, IP rate limit, public client only).
   app.post("/oauth/register", async (req, res) => {
-    const webapiBase = process.env.WEBAPI_BASE ?? "https://app.argo.games";
+    // app.argo.games is the WebApp SPA host — Oathkeeper's /api-public/*
+    // forward rule is keyed to api.argo.games, so DCR must hit that host.
+    const webapiBase = process.env.WEBAPI_BASE ?? "https://api.argo.games";
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
     try {
       const upstream = await fetch(`${webapiBase}/api-public/hydra/dcr`, {
