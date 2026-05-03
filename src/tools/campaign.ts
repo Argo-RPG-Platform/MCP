@@ -1,13 +1,14 @@
 /**
- * MCP tools for reading campaign data.
- * These tools require grant_read permission on the target campaign.
+ * MCP tools for campaign management.
+ * Reads require campaign.read; create requires campaign.create; co-GM
+ * mutations require campaign.write.
  */
 
 import { z } from "zod";
-import { argoGet } from "../client.js";
+import { argoDelete, argoGet, argoPost } from "../client.js";
 
 // ---------------------------------------------------------------------------
-// Types (mirrors WebAPI CampaignDTO)
+// Types (mirrors WebAPI McpCampaignDTO)
 // ---------------------------------------------------------------------------
 
 export interface Campaign {
@@ -17,18 +18,16 @@ export interface Campaign {
   campaignDescription?: string;
   ruleSystem?: string;
   gameSystemSlug?: string;
-  color?: string;
-  creationDateTime?: string;
+  coGameMasterIds?: string[];
 }
 
-// ---------------------------------------------------------------------------
-// Tool definitions (registered in index.ts)
-// ---------------------------------------------------------------------------
-
-/** Returned by the list endpoint — includes accessLevel. */
 export interface CampaignSummary extends Campaign {
   accessLevel?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Read
+// ---------------------------------------------------------------------------
 
 export const listCampaignsInputSchema = z.object({});
 
@@ -37,22 +36,107 @@ export async function listCampaigns(): Promise<CampaignSummary[]> {
 }
 
 export const getCampaignInputSchema = z.object({
-  campaignId: z
-    .string()
-    .min(1)
-    .describe("The ID of the campaign to retrieve."),
+  campaignId: z.string().min(1).describe("The ID of the campaign to retrieve."),
 });
 
 export async function getCampaign(
   input: z.infer<typeof getCampaignInputSchema>
 ): Promise<Campaign> {
-  return argoGet<Campaign>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}`
+  return argoGet<Campaign>(`/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Create — campaign.create scope
+// ---------------------------------------------------------------------------
+
+export const createCampaignInputSchema = z.object({
+  campaignName: z.string().min(1).describe("Display name of the campaign."),
+  description: z
+    .string()
+    .min(1)
+    .describe("Short description of the campaign's setting, tone, and premise."),
+  ruleSystem: z
+    .string()
+    .min(1)
+    .describe(
+      "Rule system the campaign uses. E.g. 'Dungeons & Dragons 5e', 'Pathfinder 2e', " +
+        "'Forbidden Lands'. Free-form; the WebAPI derives the slug from this."
+    ),
+  gameSystemSlug: z
+    .string()
+    .optional()
+    .describe(
+      "Optional explicit slug for the public URL (e.g. 'dnd5e'). If omitted, " +
+        "the server derives one from ruleSystem."
+    ),
+});
+
+interface CreateCampaignPayload {
+  campaignName: string;
+  description: string;
+  ruleSystem: string;
+  gameSystemSlug?: string;
+}
+
+export async function createCampaign(
+  input: z.infer<typeof createCampaignInputSchema>
+): Promise<CampaignSummary> {
+  const payload: CreateCampaignPayload = {
+    campaignName: input.campaignName,
+    description: input.description,
+    ruleSystem: input.ruleSystem,
+    ...(input.gameSystemSlug !== undefined && { gameSystemSlug: input.gameSystemSlug }),
+  };
+  return argoPost<CampaignSummary, CreateCampaignPayload>("/mcp/v1/campaigns", payload);
+}
+
+// ---------------------------------------------------------------------------
+// Co-GM management — campaign.write scope (owner-only on the backend)
+// ---------------------------------------------------------------------------
+
+export interface CoGm {
+  userId: string;
+  displayName?: string;
+}
+
+export const listCoGmsInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+});
+
+export async function listCoGms(
+  input: z.infer<typeof listCoGmsInputSchema>
+): Promise<CoGm[]> {
+  return argoGet<CoGm[]>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/co-gms`
   );
 }
 
-// listCampaignGrants was previously exposed here but called the user-session
-// endpoint /api/v1/campaigns/{id}/grants. With a Hydra-issued grant JWT the
-// MCP server cannot authenticate against /api/v1 (Oathkeeper expects a Kratos
-// session there). GMs manage grants from the WebApp's integrations UI; the
-// AI assistant doesn't need this surface.
+export const addCoGmInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  userId: z
+    .string()
+    .min(1)
+    .describe("Argo user ID of the user to promote to co-GM. Must be an existing user."),
+});
+
+export async function addCoGm(
+  input: z.infer<typeof addCoGmInputSchema>
+): Promise<Campaign> {
+  return argoPost<Campaign, { userId: string }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/co-gms`,
+    { userId: input.userId }
+  );
+}
+
+export const removeCoGmInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  userId: z.string().min(1).describe("User ID of the co-GM to remove."),
+});
+
+export async function removeCoGm(
+  input: z.infer<typeof removeCoGmInputSchema>
+): Promise<void> {
+  await argoDelete(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/co-gms/${encodeURIComponent(input.userId)}`
+  );
+}
