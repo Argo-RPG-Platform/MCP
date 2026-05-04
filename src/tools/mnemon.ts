@@ -251,14 +251,43 @@ export function describeMnemonTypes(): object {
 
 export const listMnemonsInputSchema = z.object({
   campaignId: z.string().min(1).describe("ID of the campaign whose mnemon entries to list."),
+  title: z
+    .string()
+    .optional()
+    .describe(
+      "Optional case-insensitive substring filter on the entry title (meta.title). " +
+        "Does NOT match against body content or tags."
+    ),
+  type: z
+    .string()
+    .optional()
+    .describe("Optional type filter (e.g. NPC, Location, Quest, Lore, Archive, Journal, SessionSummary, Player, Custom)."),
 });
+
+const LIST_MNEMONS_PAGE_SIZE = 100;
 
 export async function listMnemons(
   input: z.infer<typeof listMnemonsInputSchema>
 ): Promise<MnemonSummary[]> {
-  return argoGet<MnemonSummary[]>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`
-  );
+  const basePath = `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`;
+  const results: MnemonSummary[] = [];
+
+  for (let page = 0; ; page++) {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("size", String(LIST_MNEMONS_PAGE_SIZE));
+    if (input.title) params.set("title", input.title);
+    if (input.type) params.set("type", input.type);
+
+    const batch = await argoGet<MnemonSummary[]>(`${basePath}?${params.toString()}`);
+    results.push(...batch);
+
+    if (batch.length < LIST_MNEMONS_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return results;
 }
 
 export const getMnemonInputSchema = z.object({
