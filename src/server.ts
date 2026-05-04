@@ -83,6 +83,7 @@ import {
   listGuildMembersInputSchema,
   listGuilds,
   listGuildsInputSchema,
+  type GuildSummary,
   removeGuildMember,
   removeGuildMemberInputSchema,
   setGuildMemberRole,
@@ -157,6 +158,38 @@ async function runTool<T>(fn: () => Promise<T>, format: (result: T) => ToolResul
 
 const json = (v: unknown) => JSON.stringify(v, null, 2);
 
+// Format list responses so the human-readable section never contains IDs.
+// The compact [id-map] at the end gives the model what it needs for follow-up
+// tool calls without tempting it to surface raw UUIDs in the chat.
+
+function fmtCampaigns(campaigns: CampaignSummary[]): string {
+  const lines = campaigns.map(
+    (c) => `• ${c.campaignName}${c.ruleSystem ? ` (${c.ruleSystem})` : ""} — ${c.accessLevel ?? "read"}`
+  );
+  const idMap = JSON.stringify(Object.fromEntries(campaigns.map((c) => [c.campaignName, c.id])));
+  return `${campaigns.length} campaign(s):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+}
+
+function fmtGuilds(guilds: GuildSummary[]): string {
+  const lines = guilds.map(
+    (g) => `• ${g.name} — ${g.role} (${g.memberCount} member${g.memberCount === 1 ? "" : "s"}, ${g.campaignCount} campaign${g.campaignCount === 1 ? "" : "s"})`
+  );
+  const idMap = JSON.stringify(Object.fromEntries(guilds.map((g) => [g.name, g.guildId])));
+  return `${guilds.length} guild(s):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+}
+
+function fmtMnemons(entries: MnemonSummary[]): string {
+  const lines = entries.map((e) => `• ${e.title} [${e.type}]`);
+  // Key is "title|type" so duplicate titles across different types don't collide.
+  const idMap = JSON.stringify(Object.fromEntries(entries.map((e) => [`${e.title}|${e.type}`, e.entryId])));
+  return `${entries.length} entry(ies):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+}
+
+// Inline ID hint for write responses — lets the model chain tool calls
+// (e.g. create then immediately relate) without an extra list round-trip.
+const idHint = (label: string, id: string) =>
+  `\n[${label} for tool calls, do not display: ${id}]`;
+
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: "argo-mcp", version: "1.1.0" },
@@ -196,7 +229,7 @@ export function createServer(): McpServer {
             type: "text",
             text: campaigns.length === 0
               ? "No campaigns found in the current grant. The token may not cover any campaigns."
-              : json(campaigns),
+              : fmtCampaigns(campaigns),
           }],
         })
       )
@@ -370,7 +403,7 @@ export function createServer(): McpServer {
         (entries: MnemonSummary[]) => ({
           content: [{
             type: "text",
-            text: entries.length === 0 ? "No mnemon entries found." : json(entries),
+            text: entries.length === 0 ? "No mnemon entries found." : fmtMnemons(entries),
           }],
         })
       )
@@ -429,7 +462,7 @@ export function createServer(): McpServer {
       runTool(
         () => createMnemon(input),
         (entry) => ({
-          content: [{ type: "text", text: `Created "${entry.title}" (${entry.type}).` }],
+          content: [{ type: "text", text: `Created "${entry.title}" (${entry.type}).${idHint("entryId", entry.entryId)}` }],
         })
       )
   );
@@ -449,14 +482,14 @@ export function createServer(): McpServer {
       runTool(
         () => createMnemons(input),
         (resp: BulkCreateMnemonResponse) => {
-          const ok = resp.results.filter((r) => r.success).length;
-          const fail = resp.results.length - ok;
-          return {
-            content: [{
-              type: "text",
-              text: `Bulk create: ${ok} succeeded, ${fail} failed.\n\n${json(resp.results)}`,
-            }],
-          };
+          const ok = resp.results.filter((r) => r.success);
+          const fail = resp.results.filter((r) => !r.success);
+          const idMap = JSON.stringify(Object.fromEntries(ok.filter((r) => r.entryId).map((r) => [r.title ?? `item ${r.index}`, r.entryId])));
+          const parts = [`Bulk create: ${ok.length} succeeded, ${fail.length} failed.`];
+          if (ok.length) parts.push(ok.map((r) => `• ${r.title ?? `item ${r.index}`}`).join("\n"));
+          if (fail.length) parts.push(`Failed:\n${fail.map((r) => `• item ${r.index}: ${r.error ?? "unknown error"}`).join("\n")}`);
+          parts.push(`[id-map for tool calls, do not display: ${idMap}]`);
+          return { content: [{ type: "text", text: parts.join("\n\n") }] };
         }
       )
   );
@@ -475,7 +508,7 @@ export function createServer(): McpServer {
       runTool(
         () => updateMnemon(input),
         (entry) => ({
-          content: [{ type: "text", text: `Updated "${entry.title}".` }],
+          content: [{ type: "text", text: `Updated "${entry.title}".${idHint("entryId", entry.entryId)}` }],
         })
       )
   );
@@ -644,7 +677,7 @@ export function createServer(): McpServer {
             type: "text",
             text: guilds.length === 0
               ? "You are not a member of any guilds."
-              : json(guilds),
+              : fmtGuilds(guilds),
           }],
         })
       )
