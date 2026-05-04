@@ -14,6 +14,8 @@ import {
   updateMnemon,
   createMnemonRelationship,
   describeMnemonTypes,
+  listMnemons,
+  type MnemonSummary,
 } from "./mnemon.js";
 import * as client from "../client.js";
 
@@ -291,6 +293,65 @@ describe("createMnemons (bulk) — id-reference resolution", () => {
     const body = argoPost.mock.calls[0][1] as { items: Array<{ partyId?: string }> };
     expect(body.items[0].partyId).toBe(PARTY_HEX);
     expect(body.items[1].partyId).toBe(PARTY_HEX);
+  });
+});
+
+describe("listMnemons — filters and auto-pagination", () => {
+  it("forwards title filter as query param", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "Abutres de Aco", type: "NPC" }]);
+    await listMnemons({ campaignId: CAMPAIGN, title: "abutres" });
+    expect(argoGet).toHaveBeenCalledTimes(1);
+    const url = argoGet.mock.calls[0][0] as string;
+    expect(url).toContain("title=abutres");
+    expect(url).toContain("page=0");
+    expect(url).toContain("size=100");
+  });
+
+  it("forwards type filter as query param", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "Some NPC", type: "NPC" }]);
+    await listMnemons({ campaignId: CAMPAIGN, type: "NPC" });
+    const url = argoGet.mock.calls[0][0] as string;
+    expect(url).toContain("type=NPC");
+  });
+
+  it("omits filters when not provided", async () => {
+    argoGet.mockResolvedValueOnce([]);
+    await listMnemons({ campaignId: CAMPAIGN });
+    const url = argoGet.mock.calls[0][0] as string;
+    expect(url).not.toContain("title=");
+    expect(url).not.toContain("type=");
+    expect(url).toContain("page=0");
+    expect(url).toContain("size=100");
+  });
+
+  it("auto-paginates and concatenates pages until a short page", async () => {
+    const fullPage: MnemonSummary[] = Array.from({ length: 100 }, (_, i) => ({
+      entryId: `E${i.toString().padStart(32, "0")}`,
+      title: `T${i}`,
+      type: "NPC",
+    }));
+    const shortPage: MnemonSummary[] = Array.from({ length: 30 }, (_, i) => ({
+      entryId: `F${i.toString().padStart(32, "0")}`,
+      title: `U${i}`,
+      type: "NPC",
+    }));
+    argoGet.mockResolvedValueOnce(fullPage).mockResolvedValueOnce(shortPage);
+
+    const all = await listMnemons({ campaignId: CAMPAIGN });
+
+    expect(all).toHaveLength(130);
+    expect(argoGet).toHaveBeenCalledTimes(2);
+    expect(argoGet.mock.calls[0][0]).toContain("page=0");
+    expect(argoGet.mock.calls[1][0]).toContain("page=1");
+  });
+
+  it("stops after a single page when fewer results than page size", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: ENTRY, title: "Solo", type: "NPC" },
+    ]);
+    const all = await listMnemons({ campaignId: CAMPAIGN });
+    expect(all).toHaveLength(1);
+    expect(argoGet).toHaveBeenCalledTimes(1);
   });
 });
 
