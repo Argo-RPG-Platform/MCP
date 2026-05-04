@@ -158,7 +158,19 @@ async function runTool<T>(fn: () => Promise<T>, format: (result: T) => ToolResul
 const json = (v: unknown) => JSON.stringify(v, null, 2);
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "argo-mcp", version: "1.1.0" });
+  const server = new McpServer(
+    { name: "argo-mcp", version: "1.1.0" },
+    {
+      instructions:
+        "Display policy: Never show internal IDs (guildId, campaignId, entryId, " +
+        "relationshipId, userId, sessionId) in conversational responses. Use names, " +
+        "titles, and campaignName instead — IDs are for tool calls only. Obtain IDs " +
+        "from list/get results and use them silently in subsequent tool calls. " +
+        "Only reveal an ID if the user explicitly asks for it or needs to copy it. " +
+        "Ambiguity: if two resources share the same name, distinguish by campaign, " +
+        "type, date, or description — never by showing raw IDs.",
+    }
+  );
 
   // -------------------------------------------------------------------------
   // Campaign — read
@@ -170,7 +182,8 @@ export function createServer(): McpServer {
       description:
         "List all Argo campaigns the current grant token has access to, including the access level " +
         "(\"read\" or \"read+write\") for each. Call this first when the user has not provided a " +
-        "campaign ID — it returns all campaign IDs and names you can then use with other tools.",
+        "campaign ID — it returns all campaign IDs and names you can then use with other tools. " +
+        "In responses, refer to campaigns by campaignName — never expose the id field to the user.",
       inputSchema: listCampaignsInputSchema.shape,
       annotations: READ_ONLY,
       _meta: READ_META,
@@ -226,7 +239,7 @@ export function createServer(): McpServer {
         (campaign) => ({
           content: [{
             type: "text",
-            text: `Created campaign: ${campaign.campaignName} (id: ${campaign.id})\n\n${json(campaign)}`,
+            text: `Created campaign: "${campaign.campaignName}".\n\n${json(campaign)}`,
           }],
         })
       )
@@ -253,7 +266,7 @@ export function createServer(): McpServer {
         (campaign) => ({
           content: [{
             type: "text",
-            text: `Updated campaign ${campaign.id}: ${campaign.campaignName}\n\n${json(campaign)}`,
+            text: `Updated campaign "${campaign.campaignName}".\n\n${json(campaign)}`,
           }],
         })
       )
@@ -314,7 +327,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => removeCoGm(input),
-        () => ({ content: [{ type: "text", text: `Removed co-GM ${input.userId}.` }] })
+        () => ({ content: [{ type: "text", text: `Removed co-GM.` }] })
       )
   );
 
@@ -326,10 +339,10 @@ export function createServer(): McpServer {
     "describe_mnemon_types",
     {
       description:
-        "Returns a catalog of all mnemon types and their type-specific fields. " +
-        "Call this before create_mnemon when the user mentions a specific type " +
-        "(e.g. 'NPC of type FACTION', 'completed quest'). NPC subtype is strictly " +
-        "FACTION | INDIVIDUAL — anything else is rejected.",
+        "Returns a catalog of all mnemon types, their type-specific fields, and the " +
+        "full valid relationship matrix (sourceType → label → targetType). " +
+        "Call this before create_mnemon or create_mnemon_relationship when you are " +
+        "unsure which type or label to use. NPC subtype is strictly FACTION | INDIVIDUAL.",
       inputSchema: describeMnemonTypesInputSchema.shape,
       annotations: READ_ONLY,
       _meta: NO_META,
@@ -344,7 +357,9 @@ export function createServer(): McpServer {
   server.registerTool(
     "list_mnemons",
     {
-      description: "List all mnemon (lore/memory) entries for an Argo campaign.",
+      description:
+        "List all mnemon (lore/memory) entries for an Argo campaign. " +
+        "In responses, refer to entries by title — never expose entryId to the user.",
       inputSchema: listMnemonsInputSchema.shape,
       annotations: READ_ONLY,
       _meta: READ_META,
@@ -414,7 +429,7 @@ export function createServer(): McpServer {
       runTool(
         () => createMnemon(input),
         (entry) => ({
-          content: [{ type: "text", text: `Created mnemon entry: ${entry.title} (id: ${entry.entryId})` }],
+          content: [{ type: "text", text: `Created "${entry.title}" (${entry.type}).` }],
         })
       )
   );
@@ -460,7 +475,7 @@ export function createServer(): McpServer {
       runTool(
         () => updateMnemon(input),
         (entry) => ({
-          content: [{ type: "text", text: `Updated mnemon entry: ${entry.title} (id: ${entry.entryId})` }],
+          content: [{ type: "text", text: `Updated "${entry.title}".` }],
         })
       )
   );
@@ -469,11 +484,15 @@ export function createServer(): McpServer {
     "create_mnemon_relationship",
     {
       description:
-        "Create a relationship between two mnemon entries. Label is one of: " +
-        "MEMBER (e.g. NPC ∈ Faction; bidirectional), ALLY (bidirectional), " +
-        "ENEMY (directional), RIVAL (directional). " +
-        "For faction membership prefer setting memberNpcEntryIds / affiliationEntryIds " +
-        "on the NPC mnemons themselves; this tool is for ad-hoc edges.",
+        "Create a relationship between two mnemon entries. " +
+        "All 7 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
+        "ENEMY (directional), RIVAL (directional), " +
+        "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
+        "e.g. Region → City → District → Tavern), " +
+        "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS). " +
+        "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — direction matters. " +
+        "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
+        "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
@@ -482,7 +501,7 @@ export function createServer(): McpServer {
       runTool(
         () => createMnemonRelationship(input),
         (rel: Relationship) => ({
-          content: [{ type: "text", text: `Created relationship ${rel.relationshipId} (${rel.label}).` }],
+          content: [{ type: "text", text: `Created ${rel.label} relationship.` }],
         })
       )
   );
@@ -505,7 +524,7 @@ export function createServer(): McpServer {
         (entry) => ({
           content: [{
             type: "text",
-            text: `Set visibility of ${entry.entryId} (${entry.title}) to ${input.visibility}.`,
+            text: `Set visibility of "${entry.title}" to ${input.visibility}.`,
           }],
         })
       )
@@ -522,7 +541,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => deleteMnemonRelationship(input),
-        () => ({ content: [{ type: "text", text: `Deleted relationship ${input.relationshipId}.` }] })
+        () => ({ content: [{ type: "text", text: `Deleted relationship.` }] })
       )
   );
 
@@ -544,7 +563,7 @@ export function createServer(): McpServer {
       runTool(
         () => createSession(input),
         (s: CampaignSession) => ({
-          content: [{ type: "text", text: `Scheduled session ${s.id}: ${s.title} @ ${s.startAt}` }],
+          content: [{ type: "text", text: `Scheduled "${s.title}" @ ${s.startAt}.` }],
         })
       )
   );
@@ -598,7 +617,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => updateSession(input),
-        (s: CampaignSession) => ({ content: [{ type: "text", text: `Updated session ${s.id}.` }] })
+        (s: CampaignSession) => ({ content: [{ type: "text", text: `Updated session "${s.title}".` }] })
       )
   );
 
@@ -611,7 +630,8 @@ export function createServer(): McpServer {
     {
       description:
         "List the guilds the current user belongs to, with role (Owner/Admin/Member), " +
-        "member count, and campaign count. Requires the guild.read scope.",
+        "member count, and campaign count. Requires the guild.read scope. " +
+        "In responses, refer to guilds by name — never expose guildId to the user.",
       inputSchema: listGuildsInputSchema.shape,
       annotations: READ_ONLY,
       _meta: GUILD_READ_META,
@@ -685,7 +705,7 @@ export function createServer(): McpServer {
         () => ({
           content: [{
             type: "text",
-            text: `Added campaign ${input.campaignId} to guild ${input.guildId}.`,
+            text: `Added campaign to guild.`,
           }],
         })
       )
@@ -706,7 +726,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => inviteGuildMember(input),
-        () => ({ content: [{ type: "text", text: `Invited ${input.userId} to guild ${input.guildId}.` }] })
+        () => ({ content: [{ type: "text", text: `Invited user to guild.` }] })
       )
   );
 
@@ -721,7 +741,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => removeGuildMember(input),
-        () => ({ content: [{ type: "text", text: `Removed ${input.userId} from guild ${input.guildId}.` }] })
+        () => ({ content: [{ type: "text", text: `Removed member from guild.` }] })
       )
   );
 
@@ -741,7 +761,7 @@ export function createServer(): McpServer {
         () => ({
           content: [{
             type: "text",
-            text: `Set ${input.userId} role to ${input.role} in guild ${input.guildId}.`,
+            text: `Set role to ${input.role}.`,
           }],
         })
       )
@@ -763,7 +783,7 @@ export function createServer(): McpServer {
         (resp) => ({
           content: [{
             type: "text",
-            text: `Created calendar event ${resp.id} in guild ${input.guildId}.`,
+            text: `Created calendar event.`,
           }],
         })
       )
@@ -844,7 +864,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => sendFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Friend request sent to ${input.userId}.` }] })
+        () => ({ content: [{ type: "text", text: `Friend request sent.` }] })
       )
   );
 
@@ -859,7 +879,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => acceptFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Accepted friend request from ${input.userId}.` }] })
+        () => ({ content: [{ type: "text", text: `Friend request accepted.` }] })
       )
   );
 
@@ -874,7 +894,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => rejectFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Rejected friend request from ${input.userId}.` }] })
+        () => ({ content: [{ type: "text", text: `Friend request rejected.` }] })
       )
   );
 
@@ -889,7 +909,7 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => cancelFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Cancelled friend request to ${input.userId}.` }] })
+        () => ({ content: [{ type: "text", text: `Friend request cancelled.` }] })
       )
   );
 
