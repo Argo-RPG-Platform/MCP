@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { argoDelete, argoGet, argoPost, argoPatch } from "../client.js";
+import { MnemonResolver } from "./idResolution.js";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors WebAPI McpMnemonSummaryDTO / McpMnemonDetailDTO)
@@ -228,6 +229,12 @@ export function describeMnemonTypes(): object {
       { name: "tags", type: "string[]", description: "Optional tag list." },
       { name: "content", type: "string", description: "Initial text content (stored as a paragraph block)." },
     ],
+    idReferences:
+      "All entryId-shaped fields (partyId, parentEntryId, *NpcEntryIds, *LocationEntryIds, " +
+      "*QuestEntryIds, sourceEntryId, targetEntryId, etc.) accept either a hex entryId OR the " +
+      "mnemon's exact title — the MCP server resolves titles to hex IDs before calling the API. " +
+      "If a title matches multiple mnemons, the call fails with a list of candidate IDs; pass " +
+      "the explicit hex entryId in that case.",
     relationshipLabels: RELATIONSHIP_LABELS,
     relationships: RELATIONSHIP_MATRIX,
     relationshipsHowTo:
@@ -256,14 +263,19 @@ export async function listMnemons(
 
 export const getMnemonInputSchema = z.object({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  entryId: z.string().min(1).describe("Mnemon entry ID to retrieve."),
+  entryId: z
+    .string()
+    .min(1)
+    .describe("Mnemon entry ID (hex) or its exact title — titles are resolved server-side."),
 });
 
 export async function getMnemon(
   input: z.infer<typeof getMnemonInputSchema>
 ): Promise<MnemonEntry> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const hexEntryId = await resolver.resolve(input.entryId, { fieldLabel: "entryId" });
   return argoGet<MnemonEntry>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}`
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(hexEntryId)}`
   );
 }
 
@@ -334,7 +346,12 @@ const createMnemonItemSchema = z.object({
 
   // Player
   playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
-  partyId: z.string().optional(),
+  partyId: z
+    .string()
+    .optional()
+    .describe(
+      "Parent party — entryId (hex) of a Player mnemon with playerKind=PARTY, or its exact title."
+    ),
   characterId: z.string().optional(),
 });
 
@@ -417,6 +434,85 @@ function buildCreatePayload(item: CreateMnemonItem): CreateMnemonPayload {
 }
 
 // ---------------------------------------------------------------------------
+// ID-reference resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves every entryId-shaped field on a (partial) create/update item from
+ * its title-form to the canonical hex entryId via {@link MnemonResolver}. Hex
+ * inputs pass through unchanged. Fields referencing non-mnemon entities
+ * (characterId, sheetId, levelId, *CharacterIds) are intentionally left alone
+ * — those point to SessionCharacters / Unreal levels / sheets, not mnemons.
+ */
+async function resolveItemReferences<T extends Partial<CreateMnemonItem>>(
+  resolver: MnemonResolver,
+  item: T
+): Promise<T> {
+  const out: T = { ...item };
+
+  out.partyId = await resolver.resolveOptional(item.partyId, {
+    type: "Player",
+    fieldLabel: "partyId",
+  });
+  out.primaryLocationEntryId = await resolver.resolveOptional(item.primaryLocationEntryId, {
+    type: "Location",
+    fieldLabel: "primaryLocationEntryId",
+  });
+  out.issuerNpcEntryId = await resolver.resolveOptional(item.issuerNpcEntryId, {
+    type: "NPC",
+    fieldLabel: "issuerNpcEntryId",
+  });
+  out.memberNpcEntryIds = await resolver.resolveArray(item.memberNpcEntryIds, {
+    type: "NPC",
+    fieldLabel: "memberNpcEntryIds",
+  });
+  // Affiliations may be Factions (NPCs of npcType=FACTION); keep type unfiltered.
+  out.affiliationEntryIds = await resolver.resolveArray(item.affiliationEntryIds, {
+    fieldLabel: "affiliationEntryIds",
+  });
+  out.subQuestEntryIds = await resolver.resolveArray(item.subQuestEntryIds, {
+    type: "Quest",
+    fieldLabel: "subQuestEntryIds",
+  });
+  out.relatedNpcEntryIds = await resolver.resolveArray(item.relatedNpcEntryIds, {
+    type: "NPC",
+    fieldLabel: "relatedNpcEntryIds",
+  });
+  out.relatedLocationEntryIds = await resolver.resolveArray(item.relatedLocationEntryIds, {
+    type: "Location",
+    fieldLabel: "relatedLocationEntryIds",
+  });
+  out.relatedEntryIds = await resolver.resolveArray(item.relatedEntryIds, {
+    fieldLabel: "relatedEntryIds",
+  });
+  out.involvedNpcEntryIds = await resolver.resolveArray(item.involvedNpcEntryIds, {
+    type: "NPC",
+    fieldLabel: "involvedNpcEntryIds",
+  });
+  out.involvedLocationEntryIds = await resolver.resolveArray(item.involvedLocationEntryIds, {
+    type: "Location",
+    fieldLabel: "involvedLocationEntryIds",
+  });
+  out.consequenceEntryIds = await resolver.resolveArray(item.consequenceEntryIds, {
+    fieldLabel: "consequenceEntryIds",
+  });
+  out.attendeeNpcEntryIds = await resolver.resolveArray(item.attendeeNpcEntryIds, {
+    type: "NPC",
+    fieldLabel: "attendeeNpcEntryIds",
+  });
+  out.linkedQuestEntryIds = await resolver.resolveArray(item.linkedQuestEntryIds, {
+    type: "Quest",
+    fieldLabel: "linkedQuestEntryIds",
+  });
+  out.linkedLocationEntryIds = await resolver.resolveArray(item.linkedLocationEntryIds, {
+    type: "Location",
+    fieldLabel: "linkedLocationEntryIds",
+  });
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Create / bulk-create / update
 // ---------------------------------------------------------------------------
 
@@ -428,9 +524,11 @@ export async function createMnemon(
   input: z.infer<typeof createMnemonInputSchema>
 ): Promise<MnemonEntry> {
   const { campaignId, ...rest } = input;
+  const resolver = new MnemonResolver(campaignId);
+  const resolved = await resolveItemReferences(resolver, rest);
   return argoPost<MnemonEntry, CreateMnemonPayload>(
     `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons`,
-    buildCreatePayload(rest)
+    buildCreatePayload(resolved)
   );
 }
 
@@ -458,30 +556,43 @@ export interface BulkCreateMnemonResponse {
 export async function createMnemons(
   input: z.infer<typeof createMnemonsInputSchema>
 ): Promise<BulkCreateMnemonResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  // Sequential resolution shares the cached list_mnemons call across items;
+  // parallelism would buy nothing because the first call already populates it.
+  const resolvedItems: CreateMnemonItem[] = [];
+  for (const item of input.items) {
+    resolvedItems.push(await resolveItemReferences(resolver, item));
+  }
   return argoPost<BulkCreateMnemonResponse, { items: CreateMnemonPayload[] }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/bulk`,
-    { items: input.items.map(buildCreatePayload) }
+    { items: resolvedItems.map(buildCreatePayload) }
   );
 }
 
 export const updateMnemonInputSchema = createMnemonItemSchema.partial().extend({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  entryId: z.string().min(1).describe("Mnemon entry ID to update."),
+  entryId: z
+    .string()
+    .min(1)
+    .describe("Mnemon entry ID (hex) or its exact title — titles are resolved server-side."),
 });
 
 export async function updateMnemon(
   input: z.infer<typeof updateMnemonInputSchema>
 ): Promise<MnemonEntry> {
   const { campaignId, entryId, type: _type, ...rest } = input;
+  const resolver = new MnemonResolver(campaignId);
+  const hexEntryId = await resolver.resolve(entryId, { fieldLabel: "entryId" });
+  const resolvedRest = await resolveItemReferences(resolver, rest);
   // Update payload mirrors create but type cannot be changed.
   const payload: Partial<CreateMnemonPayload> = {};
-  for (const [key, value] of Object.entries(rest)) {
+  for (const [key, value] of Object.entries(resolvedRest)) {
     if (value !== undefined) {
       (payload as Record<string, unknown>)[key] = value;
     }
   }
   return argoPatch<MnemonEntry, Partial<CreateMnemonPayload>>(
-    `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/${encodeURIComponent(entryId)}`,
+    `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/${encodeURIComponent(hexEntryId)}`,
     payload
   );
 }
@@ -514,8 +625,14 @@ export interface RelationshipsResponse {
 
 export const createMnemonRelationshipInputSchema = z.object({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  sourceEntryId: z.string().min(1).describe("entryId of the source mnemon (e.g. the faction)."),
-  targetEntryId: z.string().min(1).describe("entryId of the target mnemon (e.g. the NPC member)."),
+  sourceEntryId: z
+    .string()
+    .min(1)
+    .describe("entryId (hex) or exact title of the source mnemon (e.g. the faction)."),
+  targetEntryId: z
+    .string()
+    .min(1)
+    .describe("entryId (hex) or exact title of the target mnemon (e.g. the NPC member)."),
   label: z
     .enum(RELATIONSHIP_LABELS)
     .describe("Relationship type. MEMBER and ALLY are bidirectional; ENEMY and RIVAL are directional."),
@@ -527,9 +644,16 @@ export async function createMnemonRelationship(
   input: z.infer<typeof createMnemonRelationshipInputSchema>
 ): Promise<Relationship> {
   const { campaignId, ...body } = input;
+  const resolver = new MnemonResolver(campaignId);
+  const sourceEntryId = await resolver.resolve(body.sourceEntryId, {
+    fieldLabel: "sourceEntryId",
+  });
+  const targetEntryId = await resolver.resolve(body.targetEntryId, {
+    fieldLabel: "targetEntryId",
+  });
   return argoPost<Relationship, typeof body>(
     `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/relationships`,
-    body
+    { ...body, sourceEntryId, targetEntryId }
   );
 }
 
@@ -548,14 +672,21 @@ export async function deleteMnemonRelationship(
 
 export const listMnemonRelationshipsInputSchema = z.object({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  entryId: z.string().min(1).describe("Mnemon entry whose relationships to list."),
+  entryId: z
+    .string()
+    .min(1)
+    .describe(
+      "Mnemon whose relationships to list — entryId (hex) or exact title."
+    ),
 });
 
 export async function listMnemonRelationships(
   input: z.infer<typeof listMnemonRelationshipsInputSchema>
 ): Promise<RelationshipsResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const hexEntryId = await resolver.resolve(input.entryId, { fieldLabel: "entryId" });
   return argoGet<RelationshipsResponse>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}/relationships`
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(hexEntryId)}/relationships`
   );
 }
 
@@ -565,7 +696,10 @@ export async function listMnemonRelationships(
 
 export const setMnemonVisibilityInputSchema = z.object({
   campaignId: z.string().min(1).describe("Campaign ID."),
-  entryId: z.string().min(1).describe("Mnemon entry to update."),
+  entryId: z
+    .string()
+    .min(1)
+    .describe("Mnemon entry to update — entryId (hex) or exact title."),
   visibility: z
     .enum(["HIDDEN", "INTERNAL", "PUBLIC"])
     .describe(
@@ -578,8 +712,10 @@ export const setMnemonVisibilityInputSchema = z.object({
 export async function setMnemonVisibility(
   input: z.infer<typeof setMnemonVisibilityInputSchema>
 ): Promise<MnemonEntry> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const hexEntryId = await resolver.resolve(input.entryId, { fieldLabel: "entryId" });
   return argoPatch<MnemonEntry, { visibility: string }>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(input.entryId)}/visibility`,
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(hexEntryId)}/visibility`,
     { visibility: input.visibility }
   );
 }
