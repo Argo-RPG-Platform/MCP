@@ -136,7 +136,11 @@ function toUserMessage(err: unknown): string {
   if (err instanceof ArgoApiError) {
     switch (err.status) {
       case 401: return err.message;
-      case 403: return "Access denied — your grant does not cover this campaign, or the grant has been revoked. Visit https://app.argo.games/oauth2/mcp-connect to reconnect.";
+      case 403: {
+        const upstream = err.message?.trim();
+        if (upstream && !/^forbidden$/i.test(upstream)) return upstream;
+        return "Access denied — your grant does not cover this campaign, or the grant has been revoked. Visit https://app.argo.games/oauth2/mcp-connect to reconnect.";
+      }
       case 404: return "Not found — check that the campaign ID or entry ID is correct.";
       case 429: return "Rate limited — please wait a moment and try again.";
       default:
