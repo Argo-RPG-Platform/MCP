@@ -395,7 +395,9 @@ export function createServer(): McpServer {
     "list_mnemons",
     {
       description:
-        "List all mnemon (lore/memory) entries for an Argo campaign. " +
+        "List mnemon (lore/memory) entries for an Argo campaign. " +
+        "Optional filters: `title` (case-insensitive substring on entry title only) and " +
+        "`type` (e.g. NPC, Location, Quest). Returns all matching entries — pagination is automatic. " +
         "In responses, refer to entries by title — never expose entryId to the user.",
       inputSchema: listMnemonsInputSchema.shape,
       annotations: READ_ONLY,
