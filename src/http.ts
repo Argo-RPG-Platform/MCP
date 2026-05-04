@@ -170,6 +170,15 @@ function sendAuthChallenge(
   res.status(401).json({ error: "authorization_required" });
 }
 
+const BASE_SCOPES = ["openid", "offline_access"] as const;
+const RESOURCE_SCOPES = [
+  "campaign.read", "campaign.write", "campaign.create",
+  "guild.read", "guild.write", "guild.admin",
+  "friends.read", "friends.write",
+  "invite.write",
+] as const;
+const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
+
 export async function startHttpServer(): Promise<void> {
   const app = express();
   app.use(express.json());
@@ -413,19 +422,7 @@ export async function startHttpServer(): Promise<void> {
       // RFC 7591 dynamic client registration. ChatGPT (and any other MCP host
       // using DCR) hits this endpoint per-user and gets a fresh PKCE client.
       registration_endpoint: `${process.env.MCP_BASE_URL ?? "https://mcp.argo.games"}/oauth/register`,
-      scopes_supported: [
-        "openid",
-        "offline_access",
-        "campaign.read",
-        "campaign.write",
-        "campaign.create",
-        "guild.read",
-        "guild.write",
-        "guild.admin",
-        "friends.read",
-        "friends.write",
-        "invite.write",
-      ],
+      scopes_supported: ALL_SCOPES,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
@@ -479,11 +476,40 @@ export async function startHttpServer(): Promise<void> {
     }
   });
 
-  // OIDC Discovery — proxies Hydra's openid-configuration so ChatGPT (and other
-  // clients that scan the MCP server's domain) can auto-discover OIDC support.
-  app.get("/.well-known/openid-configuration", (_req, res) => {
+  // OIDC Discovery — proxies and augments Hydra's openid-configuration so
+  // ChatGPT (and other clients that scan the MCP domain) auto-discover OIDC
+  // support including our DCR registration_endpoint and full scope list.
+  // A redirect to oauth.argo.games would leave ChatGPT unable to correlate
+  // scopes_supported with our registration_endpoint (different host), causing
+  // "Base scopes" to appear empty in the ChatGPT app registration UI.
+  app.get("/.well-known/openid-configuration", async (_req, res) => {
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
-    res.redirect(301, `${oauthBase}/.well-known/openid-configuration`);
+    const mcpBase = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    try {
+      const upstream = await fetch(`${oauthBase}/.well-known/openid-configuration`);
+      const hydra = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+      res.json({
+        ...hydra,
+        issuer: oauthBase,
+        authorization_endpoint: `${oauthBase}/oauth2/auth`,
+        token_endpoint: `${oauthBase}/oauth2/token`,
+        userinfo_endpoint: `${oauthBase}/userinfo`,
+        jwks_uri: `${oauthBase}/.well-known/jwks.json`,
+        registration_endpoint: `${mcpBase}/oauth/register`,
+        scopes_supported: ALL_SCOPES,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+        code_challenge_methods_supported: ["S256"],
+        subject_types_supported: ["public"],
+        id_token_signing_alg_values_supported: ["RS256"],
+      });
+    } catch {
+      res.status(502).json({
+        error: "openid_configuration_unavailable",
+        error_description: "MCP could not reach the upstream OIDC discovery endpoint.",
+      });
+    }
   });
 
   // OAuth 2.0 Protected Resource Metadata (RFC 9728).
@@ -502,19 +528,7 @@ export async function startHttpServer(): Promise<void> {
     res.json({
       resource: base,
       authorization_servers: [base],
-      scopes_supported: [
-        "openid",
-        "offline_access",
-        "campaign.read",
-        "campaign.write",
-        "campaign.create",
-        "guild.read",
-        "guild.write",
-        "guild.admin",
-        "friends.read",
-        "friends.write",
-        "invite.write",
-      ],
+      scopes_supported: ALL_SCOPES,
       bearer_methods_supported: ["header"],
       resource_documentation: "https://app.argo.games/docs/mcp",
     });
