@@ -203,11 +203,40 @@ export function describeMnemonTypes(): object {
       },
       {
         type: "Player",
-        description: "A player-facing mnemon (character notes, party sheet, etc.).",
+        description:
+          "A player-facing mnemon (character notes, party sheet, etc.). " +
+          "Player mnemons are reconciled by the server's PlayerMnemon sync service: " +
+          "entries that don't match an active CampaignParty / SessionCharacter are " +
+          "automatically detached. To create a CHARACTER nested under a PARTY mnemon, " +
+          "supply playerKind=CHARACTER, parentEntryId=<the PARTY mnemon's entryId>, " +
+          "partyId=<the CampaignParty.id of that party>, and characterId=<the " +
+          "SessionCharacter id>; otherwise the server will detach the entry.",
         typeSpecificFields: [
-          { name: "playerKind", type: "enum", values: ["PARTY", "CHARACTER", "NOTES"] },
-          { name: "partyId", type: "string" },
-          { name: "characterId", type: "string" },
+          {
+            name: "playerKind",
+            type: "enum",
+            values: ["PARTY", "CHARACTER", "NOTES"],
+            description:
+              "PARTY = the party root mnemon. CHARACTER = a single character nested under a PARTY (requires parentEntryId, partyId, and characterId). NOTES = free-form notes scoped to a party.",
+          },
+          {
+            name: "partyId",
+            type: "string",
+            description:
+              "The CampaignParty id (NOT a mnemon entryId). Validated against the campaign's active parties; mismatched entries are detached.",
+          },
+          {
+            name: "parentEntryId",
+            type: "string",
+            description:
+              "For playerKind=CHARACTER: entryId (or exact title) of the PARTY-kind Player mnemon this character nests under.",
+          },
+          {
+            name: "characterId",
+            type: "string",
+            description:
+              "The SessionCharacter id this player mnemon represents. Required for playerKind=CHARACTER.",
+          },
         ],
       },
       {
@@ -379,9 +408,20 @@ const createMnemonItemSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Parent party — entryId (hex) of a Player mnemon with playerKind=PARTY, or its exact title."
+      "CampaignParty id (NOT a mnemon entryId). Validated server-side against the campaign's active parties; mismatched entries are auto-detached."
     ),
-  characterId: z.string().optional(),
+  parentEntryId: z
+    .string()
+    .optional()
+    .describe(
+      "For playerKind=CHARACTER, the entryId (or exact title) of the PARTY-kind Player mnemon this character nests under. Resolved server-side."
+    ),
+  characterId: z
+    .string()
+    .optional()
+    .describe(
+      "SessionCharacter id this player mnemon represents. Required for playerKind=CHARACTER."
+    ),
 });
 
 type CreateMnemonItem = z.infer<typeof createMnemonItemSchema>;
@@ -420,6 +460,7 @@ interface CreateMnemonPayload {
   linkedLocationEntryIds?: string[];
   playerKind?: string;
   partyId?: string;
+  parentEntryId?: string;
   characterId?: string;
 }
 
@@ -458,6 +499,7 @@ function buildCreatePayload(item: CreateMnemonItem): CreateMnemonPayload {
     ...(item.linkedLocationEntryIds !== undefined && { linkedLocationEntryIds: item.linkedLocationEntryIds }),
     ...(item.playerKind !== undefined && { playerKind: item.playerKind }),
     ...(item.partyId !== undefined && { partyId: item.partyId }),
+    ...(item.parentEntryId !== undefined && { parentEntryId: item.parentEntryId }),
     ...(item.characterId !== undefined && { characterId: item.characterId }),
   };
 }
@@ -479,9 +521,11 @@ async function resolveItemReferences<T extends Partial<CreateMnemonItem>>(
 ): Promise<T> {
   const out: T = { ...item };
 
-  out.partyId = await resolver.resolveOptional(item.partyId, {
+  // partyId is a CampaignParty.id, NOT a mnemon entryId — do not resolve.
+  out.partyId = item.partyId;
+  out.parentEntryId = await resolver.resolveOptional(item.parentEntryId, {
     type: "Player",
-    fieldLabel: "partyId",
+    fieldLabel: "parentEntryId",
   });
   out.primaryLocationEntryId = await resolver.resolveOptional(item.primaryLocationEntryId, {
     type: "Location",
