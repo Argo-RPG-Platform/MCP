@@ -453,7 +453,9 @@ export function createServer(): McpServer {
         "Create a single mnemon (lore/memory) entry. For batch authoring, prefer create_mnemons. " +
         "When type=NPC, npcType is REQUIRED and must be FACTION or INDIVIDUAL. " +
         "Use memberNpcEntryIds (FACTION) or affiliationEntryIds (INDIVIDUAL) to wire " +
-        "faction membership — the server projects these into MEMBER relationships automatically.",
+        "faction membership — the server projects these into MEMBER relationships automatically. " +
+        "Access note: Game Masters may create any type. Players with campaign.write may only " +
+        "create type='Player' entries and must supply a partyId they actively belong to.",
       inputSchema: createMnemonInputSchema.shape,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
@@ -473,7 +475,9 @@ export function createServer(): McpServer {
       description:
         "Create multiple mnemon entries in one call (best-effort, max 50 items). " +
         "Returns per-item success/error status. Use this to populate a fresh campaign " +
-        "with NPCs, locations, quests, etc. in a single tool call instead of dozens of round-trips.",
+        "with NPCs, locations, quests, etc. in a single tool call instead of dozens of round-trips. " +
+        "Access note: Game Masters may create any type. Players with campaign.write may only " +
+        "create type='Player' entries and must supply a partyId they actively belong to.",
       inputSchema: createMnemonsInputSchema.shape,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
@@ -543,7 +547,7 @@ export function createServer(): McpServer {
     "set_mnemon_visibility",
     {
       description:
-        "Set the visibility of a mnemon entry. " +
+        "Set the visibility of a mnemon entry. GM and Co-GM only — player tokens receive 403. " +
         "HIDDEN = GM/co-GM only. INTERNAL = all party members. " +
         "PUBLIC = visible on the campaign's public publication; " +
         "the server returns 409 if the campaign is not yet published.",
