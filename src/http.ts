@@ -176,6 +176,7 @@ const RESOURCE_SCOPES = [
   "guild.read", "guild.write", "guild.admin",
   "friends.read", "friends.write",
   "invite.write",
+  "forum.read", "forum.write",
 ] as const;
 const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
 
