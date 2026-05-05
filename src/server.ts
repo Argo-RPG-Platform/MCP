@@ -55,6 +55,26 @@ import {
   inviteUserByEmailInputSchema,
 } from "./tools/invite.js";
 import {
+  forumCreateTopic,
+  forumCreateTopicInputSchema,
+  forumGetLatestTopics,
+  forumGetLatestTopicsInputSchema,
+  forumGetNotifications,
+  forumGetNotificationsInputSchema,
+  forumGetUserPosts,
+  forumGetUserPostsInputSchema,
+  forumListCategories,
+  forumListCategoriesInputSchema,
+  forumListTopics,
+  forumListTopicsInputSchema,
+  forumReadTopic,
+  forumReadTopicInputSchema,
+  forumReply,
+  forumReplyInputSchema,
+  forumSearch,
+  forumSearchInputSchema,
+} from "./tools/forum.js";
+import {
   acceptFriendRequest,
   acceptFriendRequestInputSchema,
   cancelFriendRequest,
@@ -130,6 +150,8 @@ const GUILD_ADMIN_META = { securitySchemes: [{ type: "oauth2", scopes: ["guild.a
 const FRIENDS_READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["friends.read"] }] };
 const FRIENDS_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["friends.write"] }] };
 const INVITE_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["invite.write"] }] };
+const FORUM_READ_META  = { securitySchemes: [{ type: "oauth2", scopes: ["forum.read"]  }] };
+const FORUM_WRITE_META = { securitySchemes: [{ type: "oauth2", scopes: ["forum.write"] }] };
 const NO_META = { securitySchemes: [] as Array<{ type: string; scopes: string[] }> };
 
 function toUserMessage(err: unknown): string {
@@ -979,6 +1001,158 @@ export function createServer(): McpServer {
             text: `Invite results:\n${json(resp.results)}`,
           }],
         })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Forum — read (forum.read)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "forum_list_categories",
+    {
+      description:
+        "List all Discourse forum categories at community.argo.games. " +
+        "Call this first when the user wants to post a bug report or feature request — " +
+        "you need the categoryId to create a topic.",
+      inputSchema: forumListCategoriesInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    () =>
+      runTool(
+        () => forumListCategories(),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_list_topics",
+    {
+      description: "List topics in a specific forum category. Use forum_list_categories to get category slugs and IDs.",
+      inputSchema: forumListTopicsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    (input) =>
+      runTool(
+        () => forumListTopics(input),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_get_latest_topics",
+    {
+      description: "Get the latest active topics across all forum categories.",
+      inputSchema: forumGetLatestTopicsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    () =>
+      runTool(
+        () => forumGetLatestTopics(),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_read_topic",
+    {
+      description: "Read the full content of a forum topic including all posts and replies.",
+      inputSchema: forumReadTopicInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    (input) =>
+      runTool(
+        () => forumReadTopic(input),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_search",
+    {
+      description:
+        "Search forum topics and posts. Supports Discourse search syntax: " +
+        "#category-slug to filter by category, @username to filter by author. " +
+        "Always search before creating a bug report or feature request to avoid duplicates.",
+      inputSchema: forumSearchInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    (input) =>
+      runTool(
+        () => forumSearch(input),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_get_user_posts",
+    {
+      description: "List topics created by the current user on the forum.",
+      inputSchema: forumGetUserPostsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    () =>
+      runTool(
+        () => forumGetUserPosts(),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_get_notifications",
+    {
+      description: "Get the current user's forum notifications (replies, mentions, likes).",
+      inputSchema: forumGetNotificationsInputSchema.shape,
+      annotations: READ_ONLY,
+      _meta: FORUM_READ_META,
+    },
+    () =>
+      runTool(
+        () => forumGetNotifications(),
+        (result) => ({ content: [{ type: "text", text: json(result) }] })
+      )
+  );
+
+  // -------------------------------------------------------------------------
+  // Forum — write (forum.write)
+  // -------------------------------------------------------------------------
+
+  server.registerTool(
+    "forum_create_topic",
+    {
+      description:
+        "Create a new forum topic (bug report, feature request, or general discussion). " +
+        "Always call forum_search first to check for duplicates. " +
+        "Call forum_list_categories to get the correct categoryId.",
+      inputSchema: forumCreateTopicInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: FORUM_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => forumCreateTopic(input),
+        (result) => ({ content: [{ type: "text", text: `Topic created.\n\n${json(result)}` }] })
+      )
+  );
+
+  server.registerTool(
+    "forum_reply",
+    {
+      description: "Reply to an existing forum topic.",
+      inputSchema: forumReplyInputSchema.shape,
+      annotations: WRITE_SAFE,
+      _meta: FORUM_WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => forumReply(input),
+        (result) => ({ content: [{ type: "text", text: `Reply posted.\n\n${json(result)}` }] })
       )
   );
 
