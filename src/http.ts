@@ -126,17 +126,12 @@ async function ensureValidToken(t: SessionTokens | null): Promise<void> {
       // Decode JWT payload (NOT verifying — purely for diagnosis). Log only
       // the claims we care about; never log the raw token or signature.
       let summary = "(could not decode payload)";
-      let header = "(could not decode header)";
       try {
         const parts = t.token.split(".");
         if (parts.length === 3) {
-          const decode = (p: string): unknown =>
-            JSON.parse(
-              Buffer.from(p.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")
-            );
-          const h = decode(parts[0]) as { alg?: string; kid?: string; typ?: string };
-          header = JSON.stringify({ alg: h.alg, kid: h.kid, typ: h.typ });
-          const payload = decode(parts[1]) as Record<string, unknown>;
+          const payload = JSON.parse(
+            Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")
+          );
           summary = JSON.stringify({
             iss: payload.iss,
             aud: payload.aud,
@@ -148,7 +143,7 @@ async function ensureValidToken(t: SessionTokens | null): Promise<void> {
         }
       } catch { /* ignore */ }
       console.log(
-        `[debug-auth] JWT validation failed: ${err.description} | header=${header} | claims=${summary} | expected iss='${process.env.HYDRA_ISSUER ?? "https://oauth.argo.games"}' aud='${process.env.MCP_AUDIENCE ?? "(unset, not enforced)"}'`
+        `[debug-auth] JWT validation failed: ${err.description} | claims=${summary} | expected iss='${process.env.HYDRA_ISSUER ?? "https://oauth.argo.games"}' aud='${process.env.MCP_AUDIENCE ?? "https://mcp.argo.games"}'`
       );
     }
     throw err;
