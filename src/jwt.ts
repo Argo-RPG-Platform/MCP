@@ -4,12 +4,19 @@
  * The MCP service is a resource server in OAuth2 terms; it forwards bearer
  * tokens to the WebAPI which performs the real Keto / grant_map authorization.
  * This module adds defense-in-depth: validate the token's signature and core
- * claims (iss, aud, exp, nbf) against Hydra's published JWKS before forwarding,
+ * claims (iss, exp, nbf) against Hydra's published JWKS before forwarding,
  * so malformed or expired tokens never reach WebAPI.
  *
  * Configurable via env vars:
  *   HYDRA_ISSUER          — expected `iss` claim (default https://oauth.argo.games)
- *   MCP_AUDIENCE          — expected `aud` claim (default https://mcp.argo.games)
+ *   MCP_AUDIENCE          — optional. If set, `aud` is enforced; otherwise the
+ *                            audience claim is not checked. Default behaviour
+ *                            is permissive because Hydra only puts `aud` on a
+ *                            token when the auth flow grants it (via the
+ *                            `audience` token-request parameter or the consent
+ *                            screen), and ChatGPT/Claude DCR PKCE flows do
+ *                            neither. WebAPI remains authoritative for
+ *                            per-resource authorization.
  *   HYDRA_JWKS_URL        — JWKS endpoint (default `${HYDRA_ISSUER}/.well-known/jwks.json`)
  *   SKIP_JWT_VALIDATION   — set to "true" to bypass (used for the stdio CLI flow
  *                            where users paste tokens directly and we don't need
@@ -51,12 +58,12 @@ export function isJwtValidationEnabled(): boolean {
  */
 export async function validateBearer(token: string): Promise<JWTPayload> {
   const issuer = process.env.HYDRA_ISSUER ?? "https://oauth.argo.games";
-  const audience = process.env.MCP_AUDIENCE ?? "https://mcp.argo.games";
+  const audience = process.env.MCP_AUDIENCE;
 
   try {
     const { payload } = await jwtVerify(token, getJwks(), {
       issuer,
-      audience,
+      ...(audience ? { audience } : {}),
       algorithms: ["RS256"],
       // jose enforces exp and nbf automatically when present.
       clockTolerance: 30,

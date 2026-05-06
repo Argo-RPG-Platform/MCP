@@ -48,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.MCP_AUDIENCE;
   vi.restoreAllMocks();
 });
 
@@ -65,7 +66,7 @@ describe("validateBearer", () => {
     await expect(validateBearer(token)).rejects.toMatchObject({ description: "token expired" });
   });
 
-  it("rejects a token with wrong audience", async () => {
+  it("rejects a token with wrong audience when MCP_AUDIENCE is set", async () => {
     const now = Math.floor(Date.now() / 1000);
     const token = await new SignJWT({})
       .setProtectedHeader({ alg: "RS256", kid: publicJwk.kid })
@@ -77,6 +78,34 @@ describe("validateBearer", () => {
     await expect(validateBearer(token)).rejects.toMatchObject({
       description: expect.stringContaining("aud"),
     });
+  });
+
+  it("accepts a token with no audience when MCP_AUDIENCE is unset", async () => {
+    delete process.env.MCP_AUDIENCE;
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({ scope: "campaign.read" })
+      .setProtectedHeader({ alg: "RS256", kid: publicJwk.kid })
+      .setIssuer(ISSUER)
+      .setIssuedAt(now)
+      .setExpirationTime(now + 600)
+      .sign(privateKey as Parameters<SignJWT["sign"]>[0]);
+    const payload = await validateBearer(token);
+    expect(payload.iss).toBe(ISSUER);
+    expect(payload.aud).toBeUndefined();
+  });
+
+  it("accepts any audience when MCP_AUDIENCE is unset", async () => {
+    delete process.env.MCP_AUDIENCE;
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "RS256", kid: publicJwk.kid })
+      .setIssuer(ISSUER)
+      .setAudience("https://anything.example")
+      .setIssuedAt(now)
+      .setExpirationTime(now + 600)
+      .sign(privateKey as Parameters<SignJWT["sign"]>[0]);
+    const payload = await validateBearer(token);
+    expect(payload.aud).toBe("https://anything.example");
   });
 
   it("rejects a token with wrong issuer", async () => {
