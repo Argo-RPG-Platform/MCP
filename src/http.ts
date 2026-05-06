@@ -170,6 +170,23 @@ function sendAuthChallenge(
   res.status(401).json({ error: "authorization_required" });
 }
 
+// Cache discovery responses for an hour. MCP clients (Claude, ChatGPT, Gemini)
+// re-fetch these on every connect; without a cache header each connect hits
+// Cloud Run, which is billed per request.
+const DISCOVERY_CACHE_CONTROL = "public, max-age=3600";
+
+// Idle session sweep — drop session state for sessions that have not been
+// touched in IDLE_SESSION_TTL_MS. With request timeout=3600s, a stale session
+// can otherwise pin instance memory + count toward concurrency for an hour.
+const IDLE_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
+
+// Token-bucket rate limit for /oauth/register. Each unauthenticated probe
+// creates a real Hydra client through WebAPI; bot scanning this endpoint is
+// both a billing problem and a data-hygiene problem.
+const DCR_RATE_LIMIT_PER_MIN = 10;
+const DCR_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
 const BASE_SCOPES = ["openid", "offline_access"] as const;
 const RESOURCE_SCOPES = [
   "campaign.read", "campaign.write", "campaign.create",
@@ -190,6 +207,15 @@ export async function startHttpServer(): Promise<void> {
 
   const streamSessions = new Map<string, StreamableHTTPServerTransport>();
   const streamTokens = new Map<string, SessionTokens>();
+  const streamLastSeen = new Map<string, number>();
+  const sseLastSeen = new Map<string, number>();
+
+  const touchStreamSession = (id: string): void => {
+    streamLastSeen.set(id, Date.now());
+  };
+  const touchSseSession = (id: string): void => {
+    sseLastSeen.set(id, Date.now());
+  };
 
   /**
    * Resolve tokens for a Streamable HTTP request.
@@ -249,11 +275,13 @@ export async function startHttpServer(): Promise<void> {
           onsessioninitialized: (id: string) => {
             streamSessions.set(id, transport!);
             if (tokens) streamTokens.set(id, tokens);
+            touchStreamSession(id);
           },
         });
         const server = createServer();
         await server.connect(transport);
       }
+      if (sessionId) touchStreamSession(sessionId);
 
       const t = transport;
       const handle = () => t.handleRequest(req, res, req.body);
@@ -274,6 +302,7 @@ export async function startHttpServer(): Promise<void> {
       res.status(404).json({ error: "Session not found. Send a POST request first." });
       return;
     }
+    if (sessionId) touchStreamSession(sessionId);
     // Resume a previously established session — re-use whatever token was
     // cached when the session was opened (may be null if the session was
     // started by an unauthenticated discovery call).
@@ -307,10 +336,44 @@ export async function startHttpServer(): Promise<void> {
         await transport.close();
         streamSessions.delete(sessionId);
         streamTokens.delete(sessionId);
+        streamLastSeen.delete(sessionId);
       }
     }
     res.status(204).send();
   };
+
+  // Idle-session sweep. A client that crashes never sends DELETE, so without
+  // this the maps grow until the instance dies — which, combined with
+  // session-affinity, keeps that instance billed.
+  const sweepIdleSessions = async (): Promise<void> => {
+    const cutoff = Date.now() - IDLE_SESSION_TTL_MS;
+    for (const [id, last] of streamLastSeen) {
+      if (last < cutoff) {
+        const transport = streamSessions.get(id);
+        if (transport) {
+          try { await transport.close(); } catch { /* ignore */ }
+        }
+        streamSessions.delete(id);
+        streamTokens.delete(id);
+        streamLastSeen.delete(id);
+      }
+    }
+    for (const [id, last] of sseLastSeen) {
+      if (last < cutoff) {
+        const transport = sseSessions.get(id);
+        if (transport) {
+          try { await transport.close(); } catch { /* ignore */ }
+        }
+        sseSessions.delete(id);
+        sseTokens.delete(id);
+        sseLastSeen.delete(id);
+      }
+    }
+  };
+  const sweepTimer = setInterval(() => {
+    void sweepIdleSessions();
+  }, SESSION_SWEEP_INTERVAL_MS);
+  sweepTimer.unref();
 
   // Streamable HTTP routes. Mirrored at "/" because Claude Desktop posts to
   // the root when the connector URL has no path component.
@@ -341,6 +404,7 @@ export async function startHttpServer(): Promise<void> {
       const transport = new SSEServerTransport("/messages", res);
       sseSessions.set(transport.sessionId, transport);
       if (tokens) sseTokens.set(transport.sessionId, tokens);
+      touchSseSession(transport.sessionId);
 
       const keepalive = setInterval(() => {
         if (!res.writableEnded) {
@@ -354,6 +418,7 @@ export async function startHttpServer(): Promise<void> {
         clearInterval(keepalive);
         sseSessions.delete(transport.sessionId);
         sseTokens.delete(transport.sessionId);
+        sseLastSeen.delete(transport.sessionId);
       };
 
       const server = createServer();
@@ -374,6 +439,7 @@ export async function startHttpServer(): Promise<void> {
         res.status(404).json({ error: "SSE session not found." });
         return;
       }
+      touchSseSession(sessionId!);
 
       // Use cached token from the GET /sse handshake; update if header present.
       const fresh = tryExtractTokens(req);
@@ -414,6 +480,7 @@ export async function startHttpServer(): Promise<void> {
   // initiate the PKCE flow automatically — no manual token copy-paste needed.
   app.get("/.well-known/oauth-authorization-server", (_req, res) => {
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
     res.json({
       issuer: oauthBase,
       authorization_endpoint: `${oauthBase}/oauth2/auth`,
@@ -437,7 +504,35 @@ export async function startHttpServer(): Promise<void> {
   // Hydra's admin /clients endpoint. ChatGPT requires a real DCR flow
   // (no fixed client_id); WebAPI applies all the safety constraints
   // (HTTPS-only redirects, scope allowlist, IP rate limit, public client only).
+  // Per-IP token-bucket counter for /oauth/register. WebAPI rate-limits its
+  // own DCR endpoint, but bots that bounce off MCP→WebAPI on every probe still
+  // cost MCP CPU + log volume. Keep them out at the edge.
+  const dcrCounters = new Map<string, { count: number; windowStart: number }>();
+  const dcrIdentifier = (req: express.Request): string => {
+    const xff = (req.headers["x-forwarded-for"] as string | undefined) ?? "";
+    const first = xff.split(",")[0]?.trim();
+    return first || req.socket.remoteAddress || "unknown";
+  };
+  const dcrAllow = (id: string): boolean => {
+    const now = Date.now();
+    const entry = dcrCounters.get(id);
+    if (!entry || now - entry.windowStart >= DCR_RATE_LIMIT_WINDOW_MS) {
+      dcrCounters.set(id, { count: 1, windowStart: now });
+      return true;
+    }
+    entry.count += 1;
+    return entry.count <= DCR_RATE_LIMIT_PER_MIN;
+  };
+
   app.post("/oauth/register", async (req, res) => {
+    const requesterId = dcrIdentifier(req);
+    if (!dcrAllow(requesterId)) {
+      res.status(429).json({
+        error: "rate_limited",
+        error_description: "Too many registration attempts. Try again in a minute.",
+      });
+      return;
+    }
     // app.argo.games is the WebApp SPA host — Oathkeeper's /api-public/*
     // forward rule is keyed to api.argo.games, so DCR must hit that host.
     const webapiBase = process.env.WEBAPI_BASE ?? "https://api.argo.games";
@@ -489,6 +584,7 @@ export async function startHttpServer(): Promise<void> {
     try {
       const upstream = await fetch(`${oauthBase}/.well-known/openid-configuration`);
       const hydra = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+      res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
       res.json({
         ...hydra,
         issuer: oauthBase,
@@ -519,6 +615,7 @@ export async function startHttpServer(): Promise<void> {
   app.get("/.well-known/oauth-protected-resource", (_req, res) => {
     const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
     const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
     // Advertise the MCP host as the authorization server so DCR-capable
     // clients (ChatGPT) fetch our /.well-known/oauth-authorization-server,
     // which republishes Hydra's auth/token endpoints AND adds our
@@ -539,6 +636,7 @@ export async function startHttpServer(): Promise<void> {
   app.get("/.well-known/openai-apps-challenge", (_req, res) => {
     const token = process.env.OPENAI_CHALLENGE_TOKEN ?? "";
     if (!token) { res.status(404).send("Not configured"); return; }
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
     res.type("text/plain").send(token);
   });
 
@@ -546,6 +644,7 @@ export async function startHttpServer(): Promise<void> {
   // Install: gemini extensions install https://mcp.argo.games
   app.get("/.well-known/gemini-extension.json", (_req, res) => {
     const base = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
     res.json({
       name: "argo",
       version: "1.0.0",
@@ -579,7 +678,10 @@ export async function startHttpServer(): Promise<void> {
     });
   });
 
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/health", (_req, res) => {
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
+    res.json({ status: "ok" });
+  });
 
   const port = parseInt(process.env.PORT ?? "8080", 10);
   app.listen(port, () =>

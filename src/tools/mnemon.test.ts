@@ -167,7 +167,11 @@ describe("updateMnemon", () => {
 });
 
 describe("createMnemon — id-reference resolution", () => {
-  it("resolves a title-form partyId to its hex entryId before POSTing", async () => {
+  // partyId is a CampaignParty.id (NOT a mnemon entryId) and is intentionally
+  // passed through without resolution — see mnemon.ts:524. parentEntryId is
+  // the closest analogue that IS resolved through MnemonResolver, so the
+  // resolution-path coverage below targets it instead.
+  it("resolves a title-form parentEntryId to its hex entryId before POSTing", async () => {
     argoGet.mockResolvedValueOnce([
       { entryId: PARTY_HEX, title: "Outsiders", type: "Player" },
     ]);
@@ -182,13 +186,13 @@ describe("createMnemon — id-reference resolution", () => {
       title: "Beto's character",
       type: "Player",
       playerKind: "CHARACTER",
-      partyId: "Outsiders",
+      parentEntryId: "Outsiders",
     });
     const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.partyId).toBe(PARTY_HEX);
+    expect(payload.parentEntryId).toBe(PARTY_HEX);
   });
 
-  it("passes hex partyId through without any list_mnemons call", async () => {
+  it("passes hex parentEntryId through without any list_mnemons call", async () => {
     argoPost.mockResolvedValueOnce({
       entryId: ENTRY,
       title: "Beto's character",
@@ -200,11 +204,11 @@ describe("createMnemon — id-reference resolution", () => {
       title: "Beto's character",
       type: "Player",
       playerKind: "CHARACTER",
-      partyId: PARTY_HEX,
+      parentEntryId: PARTY_HEX,
     });
     expect(argoGet).not.toHaveBeenCalled();
     const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.partyId).toBe(PARTY_HEX);
+    expect(payload.parentEntryId).toBe(PARTY_HEX);
   });
 
   it("rejects an unresolvable title with a clear error and does not POST", async () => {
@@ -215,13 +219,13 @@ describe("createMnemon — id-reference resolution", () => {
         title: "Beto's character",
         type: "Player",
         playerKind: "CHARACTER",
-        partyId: "NoSuchParty",
+        parentEntryId: "NoSuchParty",
       })
-    ).rejects.toThrow(/partyId.*NoSuchParty/);
+    ).rejects.toThrow(/parentEntryId.*NoSuchParty/);
     expect(argoPost).not.toHaveBeenCalled();
   });
 
-  it("filters partyId resolution to type=Player", async () => {
+  it("filters parentEntryId resolution to type=Player", async () => {
     const wrongTypeHex = "9999AAAA9999AAAA9999AAAA9999AAAA";
     argoGet.mockResolvedValueOnce([
       { entryId: PARTY_HEX, title: "Outsiders", type: "Player" },
@@ -238,10 +242,10 @@ describe("createMnemon — id-reference resolution", () => {
       title: "Beto's character",
       type: "Player",
       playerKind: "CHARACTER",
-      partyId: "Outsiders",
+      parentEntryId: "Outsiders",
     });
     const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.partyId).toBe(PARTY_HEX);
+    expect(payload.parentEntryId).toBe(PARTY_HEX);
   });
 
   it("resolves NPC array references with type=NPC filter", async () => {
@@ -279,20 +283,20 @@ describe("createMnemons (bulk) — id-reference resolution", () => {
           title: "Char A",
           type: "Player",
           playerKind: "CHARACTER",
-          partyId: "Outsiders",
+          parentEntryId: "Outsiders",
         },
         {
           title: "Char B",
           type: "Player",
           playerKind: "CHARACTER",
-          partyId: "Outsiders",
+          parentEntryId: "Outsiders",
         },
       ],
     });
     expect(argoGet).toHaveBeenCalledTimes(1);
-    const body = argoPost.mock.calls[0][1] as { items: Array<{ partyId?: string }> };
-    expect(body.items[0].partyId).toBe(PARTY_HEX);
-    expect(body.items[1].partyId).toBe(PARTY_HEX);
+    const body = argoPost.mock.calls[0][1] as { items: Array<{ parentEntryId?: string }> };
+    expect(body.items[0].parentEntryId).toBe(PARTY_HEX);
+    expect(body.items[1].parentEntryId).toBe(PARTY_HEX);
   });
 });
 
