@@ -4,6 +4,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { z } from "zod";
 import { ArgoApiError } from "./client.js";
 import {
   addCoGm,
@@ -25,12 +26,26 @@ import {
   type CoGm,
 } from "./tools/campaign.js";
 import {
-  createMnemon,
-  createMnemonInputSchema,
-  createMnemons,
-  createMnemonsInputSchema,
+  createArchiveMnemons,
+  createArchiveMnemonsInputSchema,
+  createCustomMnemons,
+  createCustomMnemonsInputSchema,
+  createJournalMnemons,
+  createJournalMnemonsInputSchema,
+  createLocationMnemons,
+  createLocationMnemonsInputSchema,
+  createLoreMnemons,
+  createLoreMnemonsInputSchema,
   createMnemonRelationship,
   createMnemonRelationshipInputSchema,
+  createNpcMnemons,
+  createNpcMnemonsInputSchema,
+  createPlayerMnemons,
+  createPlayerMnemonsInputSchema,
+  createQuestMnemons,
+  createQuestMnemonsInputSchema,
+  createSessionSummaryMnemons,
+  createSessionSummaryMnemonsInputSchema,
   deleteMnemonRelationship,
   deleteMnemonRelationshipInputSchema,
   describeMnemonTypes,
@@ -41,11 +56,27 @@ import {
   listMnemonsInputSchema,
   listMnemonRelationships,
   listMnemonRelationshipsInputSchema,
-  setMnemonVisibility,
-  setMnemonVisibilityInputSchema,
-  updateMnemon,
-  updateMnemonInputSchema,
-  type BulkCreateMnemonResponse,
+  updateArchiveMnemons,
+  updateArchiveMnemonsInputSchema,
+  updateCustomMnemons,
+  updateCustomMnemonsInputSchema,
+  updateJournalMnemons,
+  updateJournalMnemonsInputSchema,
+  updateLocationMnemons,
+  updateLocationMnemonsInputSchema,
+  updateLoreMnemons,
+  updateLoreMnemonsInputSchema,
+  updateMnemonsContent,
+  updateMnemonsContentInputSchema,
+  updateNpcMnemons,
+  updateNpcMnemonsInputSchema,
+  updatePlayerMnemons,
+  updatePlayerMnemonsInputSchema,
+  updateQuestMnemons,
+  updateQuestMnemonsInputSchema,
+  updateSessionSummaryMnemons,
+  updateSessionSummaryMnemonsInputSchema,
+  type MnemonBulkResponse,
   type MnemonSummary,
   type Relationship,
   type RelationshipsResponse,
@@ -204,6 +235,45 @@ function fmtGuilds(guilds: GuildSummary[]): string {
   return `${guilds.length} guild(s):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
 }
 
+function fmtBulkResponse(resp: MnemonBulkResponse, verb: string): ToolResult {
+  const ok = resp.results.filter((r) => r.success);
+  const fail = resp.results.filter((r) => !r.success);
+  const idMap = JSON.stringify(
+    Object.fromEntries(ok.filter((r) => r.entryId).map((r) => [r.title ?? `item ${r.index}`, r.entryId]))
+  );
+  const parts = [`${verb}: ${ok.length} succeeded, ${fail.length} failed.`];
+  if (ok.length) {
+    parts.push(
+      ok
+        .map((r) => {
+          const label = r.title ? `"${r.title}"` : `item ${r.index}`;
+          const warns = r.warnings && r.warnings.length > 0 ? ` (${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"})` : "";
+          return `• ${label}${warns}`;
+        })
+        .join("\n")
+    );
+  }
+  if (fail.length) {
+    parts.push(
+      `Failed:\n${fail
+        .map((r) => {
+          const opIdx = r.failedOpIndex !== undefined ? ` [op ${r.failedOpIndex}]` : "";
+          return `• item ${r.index}${opIdx}: ${r.error ?? "unknown error"}`;
+        })
+        .join("\n")}`
+    );
+  }
+  // Surface first few warnings inline for visibility; LLM can call get_mnemon for the rest.
+  const warningLines = ok.flatMap((r) => (r.warnings ?? []).map((w) => `• [${r.title ?? `item ${r.index}`}] ${w}`));
+  if (warningLines.length > 0) {
+    const shown = warningLines.slice(0, 10);
+    const more = warningLines.length - shown.length;
+    parts.push(`Warnings:\n${shown.join("\n")}${more > 0 ? `\n• …and ${more} more` : ""}`);
+  }
+  parts.push(`[id-map for tool calls, do not display: ${idMap}]`);
+  return { content: [{ type: "text", text: parts.join("\n\n") }] };
+}
+
 function fmtMnemons(entries: MnemonSummary[]): string {
   const lines = entries.map((e) => `• ${e.title} [${e.type}]`);
   // Key is "title|type" so duplicate titles across different types don't collide.
@@ -230,6 +300,45 @@ export function createServer(): McpServer {
         "type, date, or description — never by showing raw IDs.",
     }
   );
+
+  // Helpers used by the per-type mnemon create/update tool registrations below.
+  // Defined inside createServer so they close over `server` and stay tidy at the
+  // call sites (just name + description + schema + fn).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function registerCreateMnemonsTool<S extends z.ZodObject<any>>(
+    name: string,
+    description: string,
+    schema: S,
+    fn: (input: z.infer<S>) => Promise<MnemonBulkResponse>
+  ): void {
+    server.registerTool(
+      name,
+      { description, inputSchema: schema.shape, annotations: WRITE_SAFE, _meta: WRITE_META },
+      (input: z.infer<S>) =>
+        runTool(
+          () => fn(input),
+          (resp: MnemonBulkResponse) => fmtBulkResponse(resp, "Create")
+        )
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function registerUpdateMnemonsTool<S extends z.ZodObject<any>>(
+    name: string,
+    description: string,
+    schema: S,
+    fn: (input: z.infer<S>) => Promise<MnemonBulkResponse>
+  ): void {
+    server.registerTool(
+      name,
+      { description, inputSchema: schema.shape, annotations: WRITE_SAFE, _meta: WRITE_META },
+      (input: z.infer<S>) =>
+        runTool(
+          () => fn(input),
+          (resp: MnemonBulkResponse) => fmtBulkResponse(resp, "Update")
+        )
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Campaign — read
@@ -474,74 +583,143 @@ export function createServer(): McpServer {
   // Mnemon — write
   // -------------------------------------------------------------------------
 
-  server.registerTool(
-    "create_mnemon",
-    {
-      description:
-        "Create a single mnemon (lore/memory) entry. For batch authoring, prefer create_mnemons. " +
-        "When type=NPC, npcType is REQUIRED and must be FACTION or INDIVIDUAL. " +
-        "Use memberNpcEntryIds (FACTION) or affiliationEntryIds (INDIVIDUAL) to wire " +
-        "faction membership — the server projects these into MEMBER relationships automatically. " +
-        "Access note: Game Masters may create any type. Players with campaign.write may only " +
-        "create type='Player' entries and must supply a partyId they actively belong to.",
-      inputSchema: createMnemonInputSchema.shape,
-      annotations: WRITE_SAFE,
-      _meta: WRITE_META,
-    },
-    (input) =>
-      runTool(
-        () => createMnemon(input),
-        (entry) => ({
-          content: [{ type: "text", text: `Created "${entry.title}" (${entry.type}).${idHint("entryId", entry.entryId)}` }],
-        })
-      )
+  // Per-type create tools. Each takes items[] (1-50). Use the per-type tool —
+  // the schemas only expose fields that apply to that type. For mixed-type
+  // seeding, call multiple of these tools in one turn. Text inside each block's
+  // `content` is HTML — see describe_mnemon_types.htmlFormat.
+  registerCreateMnemonsTool(
+    "create_npc_mnemons",
+    "Create NPC mnemons (FACTION or INDIVIDUAL). npcType is REQUIRED on each item. Use memberNpcEntryIds (on FACTIONs) and affiliationEntryIds (on INDIVIDUALs) to wire membership; the server projects into MEMBER relationships. Players may not call this — GM/co-GM only.",
+    createNpcMnemonsInputSchema,
+    createNpcMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_location_mnemons",
+    "Create Location mnemons (places — cities, dungeons, taverns). Use create_mnemon_relationship with PARENT_OF to nest larger places under one another after creation. Players may not call this — GM/co-GM only.",
+    createLocationMnemonsInputSchema,
+    createLocationMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_quest_mnemons",
+    "Create Quest mnemons. questStatus is one of active|completed|failed. Players may not call this — GM/co-GM only.",
+    createQuestMnemonsInputSchema,
+    createQuestMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_lore_mnemons",
+    "Create Lore mnemons (world background, factions' beliefs, history). Players may not call this — GM/co-GM only.",
+    createLoreMnemonsInputSchema,
+    createLoreMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_archive_mnemons",
+    "Create Archive mnemons (archived lore that is no longer current). Players may not call this — GM/co-GM only.",
+    createArchiveMnemonsInputSchema,
+    createArchiveMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_journal_mnemons",
+    "Create Journal mnemons (log of in-world events). Players may not call this — GM/co-GM only.",
+    createJournalMnemonsInputSchema,
+    createJournalMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_session_summary_mnemons",
+    "Create SessionSummary mnemons (structured summaries of game sessions). Players may not call this — GM/co-GM only.",
+    createSessionSummaryMnemonsInputSchema,
+    createSessionSummaryMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_player_mnemons",
+    "Create Player mnemons (party root, character notes, party notes). For playerKind=CHARACTER, supply parentEntryId (the PARTY mnemon), partyId (CampaignParty.id), and characterId (SessionCharacter id) or the entry will be auto-detached. Players with campaign.write may call this for a party they belong to; GMs may call for any party.",
+    createPlayerMnemonsInputSchema,
+    createPlayerMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_custom_mnemons",
+    "Create custom-typed mnemons (any free-form entry that doesn't fit the other types). Players may not call this — GM/co-GM only.",
+    createCustomMnemonsInputSchema,
+    createCustomMnemons
   );
 
-  server.registerTool(
-    "create_mnemons",
-    {
-      description:
-        "Create multiple mnemon entries in one call (best-effort, max 50 items). " +
-        "Returns per-item success/error status. Use this to populate a fresh campaign " +
-        "with NPCs, locations, quests, etc. in a single tool call instead of dozens of round-trips. " +
-        "Access note: Game Masters may create any type. Players with campaign.write may only " +
-        "create type='Player' entries and must supply a partyId they actively belong to.",
-      inputSchema: createMnemonsInputSchema.shape,
-      annotations: WRITE_SAFE,
-      _meta: WRITE_META,
-    },
-    (input) =>
-      runTool(
-        () => createMnemons(input),
-        (resp: BulkCreateMnemonResponse) => {
-          const ok = resp.results.filter((r) => r.success);
-          const fail = resp.results.filter((r) => !r.success);
-          const idMap = JSON.stringify(Object.fromEntries(ok.filter((r) => r.entryId).map((r) => [r.title ?? `item ${r.index}`, r.entryId])));
-          const parts = [`Bulk create: ${ok.length} succeeded, ${fail.length} failed.`];
-          if (ok.length) parts.push(ok.map((r) => `• ${r.title ?? `item ${r.index}`}`).join("\n"));
-          if (fail.length) parts.push(`Failed:\n${fail.map((r) => `• item ${r.index}: ${r.error ?? "unknown error"}`).join("\n")}`);
-          parts.push(`[id-map for tool calls, do not display: ${idMap}]`);
-          return { content: [{ type: "text", text: parts.join("\n\n") }] };
-        }
-      )
+  // Per-type update tools — typed/meta fields ONLY (title, visibility, tags,
+  // type-specific fields). Block-level edits go through update_mnemons_content.
+  // All fields except entryId are optional; unset fields are preserved.
+  registerUpdateMnemonsTool(
+    "update_npc_mnemons",
+    "Update typed/meta fields of NPC mnemons (visibility, tags, npcType, faction membership, etc.). Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
+    updateNpcMnemonsInputSchema,
+    updateNpcMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_location_mnemons",
+    "Update typed/meta fields of Location mnemons.",
+    updateLocationMnemonsInputSchema,
+    updateLocationMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_quest_mnemons",
+    "Update typed/meta fields of Quest mnemons (status transitions, expiry, related entries).",
+    updateQuestMnemonsInputSchema,
+    updateQuestMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_lore_mnemons",
+    "Update typed/meta fields of Lore mnemons.",
+    updateLoreMnemonsInputSchema,
+    updateLoreMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_archive_mnemons",
+    "Update typed/meta fields of Archive mnemons.",
+    updateArchiveMnemonsInputSchema,
+    updateArchiveMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_journal_mnemons",
+    "Update typed/meta fields of Journal mnemons.",
+    updateJournalMnemonsInputSchema,
+    updateJournalMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_session_summary_mnemons",
+    "Update typed/meta fields of SessionSummary mnemons.",
+    updateSessionSummaryMnemonsInputSchema,
+    updateSessionSummaryMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_player_mnemons",
+    "Update typed/meta fields of Player mnemons.",
+    updatePlayerMnemonsInputSchema,
+    updatePlayerMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_custom_mnemons",
+    "Update typed/meta fields of Custom-typed mnemons.",
+    updateCustomMnemonsInputSchema,
+    updateCustomMnemons
   );
 
+  // Content-edit tool — block-level append/insertAfter/replace/remove ops,
+  // shared across all mnemon types. Block ids come from get_mnemon. Atomic
+  // per entry; multiple entries in one call run independently.
   server.registerTool(
-    "update_mnemon",
+    "update_mnemons_content",
     {
       description:
-        "Update an existing mnemon entry. All fields are optional — only supplied fields are changed. " +
-        "Type cannot be changed after creation.",
-      inputSchema: updateMnemonInputSchema.shape,
+        "Edit the content blocks of one or more mnemon entries. Each item carries an entryId and an ordered list of ops (append, insertAfter, replace, remove) applied atomically per entry. " +
+        "Block addressing: get block ids from get_mnemon, then target them in replace/remove/insertAfter. New blocks (append, insertAfter, replace) get fresh server-generated UUIDs. " +
+        "Text in block 'text' is HTML — use <b>, <i>, <a>, <br>, <img>; do NOT use Markdown like '**bold**' or '# heading'. Use blockType for paragraph/heading1/heading2/bullet_list/numbered_list/todo/quote/code/callout/divider/image. " +
+        "Inline <img src=\"data:...\"> or <img src=\"https://...\"> is uploaded to the campaign asset bucket and the src is rewritten to asset:<id>. SSRF-blocked / oversize / failed fetches are stripped with a warning. " +
+        "On a bad op (missing blockId, unknown blockType, etc.) the whole entry's batch is rejected with the failedOpIndex; no partial mutation per entry.",
+      inputSchema: updateMnemonsContentInputSchema.shape,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
-        () => updateMnemon(input),
-        (entry) => ({
-          content: [{ type: "text", text: `Updated "${entry.title}".${idHint("entryId", entry.entryId)}` }],
-        })
+        () => updateMnemonsContent(input),
+        (resp: MnemonBulkResponse) => fmtBulkResponse(resp, "Content update")
       )
   );
 
@@ -567,30 +745,6 @@ export function createServer(): McpServer {
         () => createMnemonRelationship(input),
         (rel: Relationship) => ({
           content: [{ type: "text", text: `Created ${rel.label} relationship.` }],
-        })
-      )
-  );
-
-  server.registerTool(
-    "set_mnemon_visibility",
-    {
-      description:
-        "Set the visibility of a mnemon entry. GM and Co-GM only — player tokens receive 403. " +
-        "HIDDEN = GM/co-GM only. INTERNAL = all party members. " +
-        "PUBLIC = visible on the campaign's public publication; " +
-        "the server returns 409 if the campaign is not yet published.",
-      inputSchema: setMnemonVisibilityInputSchema.shape,
-      annotations: WRITE_SAFE,
-      _meta: WRITE_META,
-    },
-    (input) =>
-      runTool(
-        () => setMnemonVisibility(input),
-        (entry) => ({
-          content: [{
-            type: "text",
-            text: `Set visibility of "${entry.title}" to ${input.visibility}.`,
-          }],
         })
       )
   );
