@@ -9,12 +9,14 @@ vi.mock("../client.js", () => ({
 }));
 
 import {
-  createMnemon,
-  createMnemons,
-  updateMnemon,
-  createMnemonRelationship,
+  createNpcMnemons,
+  createLocationMnemons,
+  createQuestMnemons,
+  createPlayerMnemons,
   describeMnemonTypes,
   listMnemons,
+  updateNpcMnemons,
+  updateMnemonsContent,
   type MnemonSummary,
 } from "./mnemon.js";
 import * as client from "../client.js";
@@ -25,360 +27,251 @@ const argoGet = vi.mocked(client.argoGet);
 
 const CAMPAIGN = "camp-123";
 const ENTRY = "AAAA0000AAAA0000AAAA0000AAAA0000";
-const PARTY_HEX = "D28D20AE5132402EBAA4859A84160751";
 const NPC_HEX = "BBBB1111BBBB1111BBBB1111BBBB1111";
+const LOC_HEX = "CCCC2222CCCC2222CCCC2222CCCC2222";
 
 beforeEach(() => {
   vi.resetAllMocks();
 });
 
+// ---------------------------------------------------------------------------
+// describe_mnemon_types
+// ---------------------------------------------------------------------------
+
 describe("describeMnemonTypes", () => {
   it("returns a types array", () => {
-    const result = describeMnemonTypes() as { types: { type: string; typeSpecificFields: { name: string }[] }[] };
+    const result = describeMnemonTypes() as { types: { type: string; tool: string }[] };
     expect(Array.isArray(result.types)).toBe(true);
-  });
-
-  it("includes NPC with npcType field", () => {
-    const result = describeMnemonTypes() as { types: { type: string; typeSpecificFields: { name: string }[] }[] };
-    const npc = result.types.find((t) => t.type === "NPC");
-    expect(npc).toBeDefined();
-    expect(npc!.typeSpecificFields.some((f) => f.name === "npcType")).toBe(true);
   });
 
   it("includes all expected types", () => {
     const result = describeMnemonTypes() as { types: { type: string }[] };
     const names = result.types.map((t) => t.type);
-    expect(names).toContain("NPC");
-    expect(names).toContain("Location");
-    expect(names).toContain("Quest");
-    expect(names).toContain("Journal");
-    expect(names).toContain("SessionSummary");
-    expect(names).toContain("Player");
-    expect(names).toContain("Lore");
-    expect(names).toContain("Archive");
-    expect(names).toContain("Custom");
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "NPC", "Location", "Quest", "Lore", "Archive",
+        "Journal", "SessionSummary", "Player", "Custom",
+      ])
+    );
+  });
+
+  it("documents the HTML format and inline image rules", () => {
+    const result = describeMnemonTypes() as { htmlFormat: { allowedInlineTags: string[]; images: { caps: string } } };
+    expect(result.htmlFormat.allowedInlineTags).toEqual(
+      expect.arrayContaining(["<b>", "<i>", "<a href>", "<img>"])
+    );
+    expect(result.htmlFormat.images.caps).toMatch(/5MB/);
+  });
+
+  it("documents the blockOps vocabulary", () => {
+    const result = describeMnemonTypes() as { blockOps: { ops: { op: string }[] } };
+    const ops = result.blockOps.ops.map((o) => o.op);
+    expect(ops).toEqual(["append", "insertAfter", "replace", "remove"]);
   });
 });
 
-describe("createMnemon", () => {
-  it("defaults type to Custom when not provided", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "Test", type: "Custom", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "Test" });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ type: "Custom" })
-    );
+// ---------------------------------------------------------------------------
+// listMnemons
+// ---------------------------------------------------------------------------
+
+describe("listMnemons", () => {
+  it("returns first page when fewer than page-size results", async () => {
+    const entries: MnemonSummary[] = [
+      { entryId: ENTRY, title: "Town", type: "Location" },
+    ];
+    argoGet.mockResolvedValueOnce(entries);
+    const result = await listMnemons({ campaignId: CAMPAIGN });
+    expect(result).toEqual(entries);
+    expect(argoGet).toHaveBeenCalledTimes(1);
   });
 
-  it("sends npcType for NPC mnemons", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "The Faction", type: "NPC", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "The Faction", type: "NPC", npcType: "FACTION" });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ type: "NPC", npcType: "FACTION" })
-    );
-  });
-
-  it("sends questStatus for Quest mnemons", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "A Quest", type: "Quest", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "A Quest", type: "Quest", questStatus: "active" });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ type: "Quest", questStatus: "active" })
-    );
-  });
-
-  it("sends levelId for Location mnemons", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "The Town", type: "Location", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "The Town", type: "Location", levelId: "L_Town" });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ levelId: "L_Town" })
-    );
-  });
-
-  it("sends playerKind for Player mnemons", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "Party Sheet", type: "Player", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "Party Sheet", type: "Player", playerKind: "PARTY" });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ playerKind: "PARTY" })
-    );
-  });
-
-  it("omits undefined type-specific fields from payload", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "Basic", type: "Custom", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "Basic" });
-    const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect("npcType" in payload).toBe(false);
-    expect("questStatus" in payload).toBe(false);
-    expect("levelId" in payload).toBe(false);
-  });
-
-  it("sends visibility and tags when provided", async () => {
-    argoPost.mockResolvedValueOnce({ entryId: ENTRY, title: "Hidden", type: "Lore", blocks: [] });
-    await createMnemon({ campaignId: CAMPAIGN, title: "Hidden", type: "Lore", visibility: "HIDDEN", tags: ["secret"] });
-    expect(argoPost).toHaveBeenCalledWith(
-      expect.stringContaining(CAMPAIGN),
-      expect.objectContaining({ visibility: "HIDDEN", tags: ["secret"] })
-    );
+  it("paginates when results fill a page", async () => {
+    const fullPage: MnemonSummary[] = Array.from({ length: 100 }, (_, i) => ({
+      entryId: `id${i}`.padEnd(32, "0"),
+      title: `entry-${i}`,
+      type: "Lore",
+    }));
+    argoGet.mockResolvedValueOnce(fullPage).mockResolvedValueOnce([]);
+    const result = await listMnemons({ campaignId: CAMPAIGN });
+    expect(result).toHaveLength(100);
+    expect(argoGet).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("updateMnemon", () => {
-  it("sends only provided fields", async () => {
-    argoPatch.mockResolvedValueOnce({ entryId: ENTRY, title: "Updated", type: "NPC", blocks: [] });
-    await updateMnemon({ campaignId: CAMPAIGN, entryId: ENTRY, npcType: "INDIVIDUAL" });
-    const payload = argoPatch.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.npcType).toBe("INDIVIDUAL");
-    expect("title" in payload).toBe(false);
-    expect("questStatus" in payload).toBe(false);
-  });
+// ---------------------------------------------------------------------------
+// Per-type create tools
+// ---------------------------------------------------------------------------
 
-  it("sends questStatus update", async () => {
-    argoPatch.mockResolvedValueOnce({ entryId: ENTRY, title: "Quest", type: "Quest", blocks: [] });
-    await updateMnemon({ campaignId: CAMPAIGN, entryId: ENTRY, questStatus: "completed" });
-    expect(argoPatch).toHaveBeenCalledWith(
-      expect.stringContaining(ENTRY),
-      expect.objectContaining({ questStatus: "completed" })
-    );
-  });
-
-  it("resolves a title-form entryId before PATCHing", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: ENTRY, title: "Beto's character", type: "Player" },
-    ]);
-    argoPatch.mockResolvedValueOnce({
-      entryId: ENTRY,
-      title: "Beto's character",
-      type: "Player",
-      blocks: [],
-    });
-    await updateMnemon({
+describe("createNpcMnemons", () => {
+  it("POSTs to /mnemons/npc with items array", async () => {
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Goblin" }] });
+    await createNpcMnemons({
       campaignId: CAMPAIGN,
-      entryId: "Beto's character",
-      content: "new content",
+      items: [{ title: "Goblin", blocks: [{ type: "paragraph", content: "ugly" }], npcType: "INDIVIDUAL" }],
     });
-    expect(argoPatch).toHaveBeenCalledWith(
-      expect.stringContaining(ENTRY),
-      expect.objectContaining({ content: "new content" })
-    );
-  });
-});
-
-describe("createMnemon — id-reference resolution", () => {
-  // partyId is a CampaignParty.id (NOT a mnemon entryId) and is intentionally
-  // passed through without resolution — see mnemon.ts:524. parentEntryId is
-  // the closest analogue that IS resolved through MnemonResolver, so the
-  // resolution-path coverage below targets it instead.
-  it("resolves a title-form parentEntryId to its hex entryId before POSTing", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: PARTY_HEX, title: "Outsiders", type: "Player" },
-    ]);
-    argoPost.mockResolvedValueOnce({
-      entryId: ENTRY,
-      title: "Beto's character",
-      type: "Player",
-      blocks: [],
-    });
-    await createMnemon({
-      campaignId: CAMPAIGN,
-      title: "Beto's character",
-      type: "Player",
-      playerKind: "CHARACTER",
-      parentEntryId: "Outsiders",
-    });
-    const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.parentEntryId).toBe(PARTY_HEX);
-  });
-
-  it("passes hex parentEntryId through without any list_mnemons call", async () => {
-    argoPost.mockResolvedValueOnce({
-      entryId: ENTRY,
-      title: "Beto's character",
-      type: "Player",
-      blocks: [],
-    });
-    await createMnemon({
-      campaignId: CAMPAIGN,
-      title: "Beto's character",
-      type: "Player",
-      playerKind: "CHARACTER",
-      parentEntryId: PARTY_HEX,
-    });
-    expect(argoGet).not.toHaveBeenCalled();
-    const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.parentEntryId).toBe(PARTY_HEX);
-  });
-
-  it("rejects an unresolvable title with a clear error and does not POST", async () => {
-    argoGet.mockResolvedValueOnce([]);
-    await expect(
-      createMnemon({
-        campaignId: CAMPAIGN,
-        title: "Beto's character",
-        type: "Player",
-        playerKind: "CHARACTER",
-        parentEntryId: "NoSuchParty",
+    expect(argoPost).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/npc$/),
+      expect.objectContaining({
+        items: expect.arrayContaining([expect.objectContaining({ title: "Goblin", npcType: "INDIVIDUAL" })]),
       })
-    ).rejects.toThrow(/parentEntryId.*NoSuchParty/);
-    expect(argoPost).not.toHaveBeenCalled();
+    );
   });
 
-  it("filters parentEntryId resolution to type=Player", async () => {
-    const wrongTypeHex = "9999AAAA9999AAAA9999AAAA9999AAAA";
-    argoGet.mockResolvedValueOnce([
-      { entryId: PARTY_HEX, title: "Outsiders", type: "Player" },
-      { entryId: wrongTypeHex, title: "Outsiders", type: "Lore" },
-    ]);
-    argoPost.mockResolvedValueOnce({
-      entryId: ENTRY,
-      title: "Beto's character",
-      type: "Player",
-      blocks: [],
-    });
-    await createMnemon({
-      campaignId: CAMPAIGN,
-      title: "Beto's character",
-      type: "Player",
-      playerKind: "CHARACTER",
-      parentEntryId: "Outsiders",
-    });
-    const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.parentEntryId).toBe(PARTY_HEX);
-  });
-
-  it("resolves NPC array references with type=NPC filter", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: NPC_HEX, title: "Goblin Boss", type: "NPC" },
-    ]);
-    argoPost.mockResolvedValueOnce({
-      entryId: ENTRY,
-      title: "Goblin Tribe",
-      type: "NPC",
-      blocks: [],
-    });
-    await createMnemon({
-      campaignId: CAMPAIGN,
-      title: "Goblin Tribe",
-      type: "NPC",
-      npcType: "FACTION",
-      memberNpcEntryIds: ["Goblin Boss"],
-    });
-    const payload = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload.memberNpcEntryIds).toEqual([NPC_HEX]);
-  });
-});
-
-describe("createMnemons (bulk) — id-reference resolution", () => {
-  it("uses one cached list_mnemons call across all items", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: PARTY_HEX, title: "Outsiders", type: "Player" },
-    ]);
-    argoPost.mockResolvedValueOnce({ results: [] });
-    await createMnemons({
+  it("resolves title-form primaryLocationEntryId to hex before POSTing", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: LOC_HEX, title: "Tavern", type: "Location" }]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Bartender" }] });
+    await createNpcMnemons({
       campaignId: CAMPAIGN,
       items: [
         {
-          title: "Char A",
-          type: "Player",
-          playerKind: "CHARACTER",
-          parentEntryId: "Outsiders",
-        },
-        {
-          title: "Char B",
-          type: "Player",
-          playerKind: "CHARACTER",
-          parentEntryId: "Outsiders",
+          title: "Bartender",
+          blocks: [{ type: "paragraph", content: "x" }],
+          npcType: "INDIVIDUAL",
+          primaryLocationEntryId: "Tavern",
         },
       ],
     });
-    expect(argoGet).toHaveBeenCalledTimes(1);
-    const body = argoPost.mock.calls[0][1] as { items: Array<{ parentEntryId?: string }> };
-    expect(body.items[0].parentEntryId).toBe(PARTY_HEX);
-    expect(body.items[1].parentEntryId).toBe(PARTY_HEX);
+    const body = argoPost.mock.calls[0][1] as { items: Array<{ primaryLocationEntryId: string }> };
+    expect(body.items[0].primaryLocationEntryId).toBe(LOC_HEX);
   });
 });
 
-describe("listMnemons — filters and auto-pagination", () => {
-  it("forwards title filter as query param", async () => {
-    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "Abutres de Aco", type: "NPC" }]);
-    await listMnemons({ campaignId: CAMPAIGN, title: "abutres" });
-    expect(argoGet).toHaveBeenCalledTimes(1);
-    const url = argoGet.mock.calls[0][0] as string;
-    expect(url).toContain("title=abutres");
-    expect(url).toContain("page=0");
-    expect(url).toContain("size=100");
-  });
-
-  it("forwards type filter as query param", async () => {
-    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "Some NPC", type: "NPC" }]);
-    await listMnemons({ campaignId: CAMPAIGN, type: "NPC" });
-    const url = argoGet.mock.calls[0][0] as string;
-    expect(url).toContain("type=NPC");
-  });
-
-  it("omits filters when not provided", async () => {
-    argoGet.mockResolvedValueOnce([]);
-    await listMnemons({ campaignId: CAMPAIGN });
-    const url = argoGet.mock.calls[0][0] as string;
-    expect(url).not.toContain("title=");
-    expect(url).not.toContain("type=");
-    expect(url).toContain("page=0");
-    expect(url).toContain("size=100");
-  });
-
-  it("auto-paginates and concatenates pages until a short page", async () => {
-    const fullPage: MnemonSummary[] = Array.from({ length: 100 }, (_, i) => ({
-      entryId: `E${i.toString().padStart(32, "0")}`,
-      title: `T${i}`,
-      type: "NPC",
-    }));
-    const shortPage: MnemonSummary[] = Array.from({ length: 30 }, (_, i) => ({
-      entryId: `F${i.toString().padStart(32, "0")}`,
-      title: `U${i}`,
-      type: "NPC",
-    }));
-    argoGet.mockResolvedValueOnce(fullPage).mockResolvedValueOnce(shortPage);
-
-    const all = await listMnemons({ campaignId: CAMPAIGN });
-
-    expect(all).toHaveLength(130);
-    expect(argoGet).toHaveBeenCalledTimes(2);
-    expect(argoGet.mock.calls[0][0]).toContain("page=0");
-    expect(argoGet.mock.calls[1][0]).toContain("page=1");
-  });
-
-  it("stops after a single page when fewer results than page size", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: ENTRY, title: "Solo", type: "NPC" },
-    ]);
-    const all = await listMnemons({ campaignId: CAMPAIGN });
-    expect(all).toHaveLength(1);
-    expect(argoGet).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("createMnemonRelationship — id-reference resolution", () => {
-  it("resolves source and target titles to hex entryIds", async () => {
-    argoGet.mockResolvedValueOnce([
-      { entryId: PARTY_HEX, title: "Faction One", type: "NPC" },
-      { entryId: NPC_HEX, title: "Goblin Boss", type: "NPC" },
-    ]);
-    argoPost.mockResolvedValueOnce({
-      relationshipId: "rel-1",
-      sourceId: PARTY_HEX,
-      targetId: NPC_HEX,
-      label: "MEMBER",
-    });
-    await createMnemonRelationship({
+describe("createLocationMnemons", () => {
+  it("POSTs to /mnemons/location", async () => {
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: LOC_HEX, title: "Town" }] });
+    await createLocationMnemons({
       campaignId: CAMPAIGN,
-      sourceEntryId: "Faction One",
-      targetEntryId: "Goblin Boss",
-      label: "MEMBER",
+      items: [{ title: "Town", blocks: [{ type: "paragraph", content: "x" }], levelId: "L_Town" }],
     });
-    const body = argoPost.mock.calls[0][1] as Record<string, unknown>;
-    expect(body.sourceEntryId).toBe(PARTY_HEX);
-    expect(body.targetEntryId).toBe(NPC_HEX);
+    expect(argoPost).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/location$/),
+      expect.any(Object)
+    );
+  });
+});
+
+describe("createQuestMnemons", () => {
+  it("resolves title-form issuerNpcEntryId before POSTing", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: NPC_HEX, title: "Mayor", type: "NPC" }]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Save the cat" }] });
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "Save the cat",
+          blocks: [{ type: "paragraph", content: "x" }],
+          questStatus: "active",
+          issuerNpcEntryId: "Mayor",
+        },
+      ],
+    });
+    const body = argoPost.mock.calls[0][1] as { items: Array<{ issuerNpcEntryId: string }> };
+    expect(body.items[0].issuerNpcEntryId).toBe(NPC_HEX);
+  });
+});
+
+describe("createPlayerMnemons", () => {
+  it("resolves title-form parentEntryId of type Player", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "Player" }]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Maelen" }] });
+    await createPlayerMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "Maelen",
+          blocks: [{ type: "paragraph", content: "x" }],
+          playerKind: "CHARACTER",
+          parentEntryId: "The Misfits",
+          partyId: "party-id",
+          characterId: "char-id",
+        },
+      ],
+    });
+    const body = argoPost.mock.calls[0][1] as { items: Array<{ parentEntryId: string }> };
+    expect(body.items[0].parentEntryId).toBe(ENTRY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-type update tools
+// ---------------------------------------------------------------------------
+
+describe("updateNpcMnemons", () => {
+  it("PATCHes /mnemons/npc with items[]", async () => {
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Goblin" }] });
+    await updateNpcMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: ENTRY, visibility: "PUBLIC" }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/npc$/),
+      expect.objectContaining({
+        items: expect.arrayContaining([expect.objectContaining({ entryId: ENTRY, visibility: "PUBLIC" })]),
+      })
+    );
+  });
+
+  it("resolves title-form entryId before PATCH", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: NPC_HEX, title: "Goblin", type: "NPC" }]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Goblin" }] });
+    await updateNpcMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "Goblin", sheetId: "sheet-1" }],
+    });
+    const body = argoPatch.mock.calls[0][1] as { items: Array<{ entryId: string; sheetId: string }> };
+    expect(body.items[0].entryId).toBe(NPC_HEX);
+    expect(body.items[0].sheetId).toBe("sheet-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// update_mnemons_content
+// ---------------------------------------------------------------------------
+
+describe("updateMnemonsContent", () => {
+  it("POSTs to /mnemons/content with ops array", async () => {
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY }] });
+    await updateMnemonsContent({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          entryId: ENTRY,
+          ops: [
+            { op: "append", blockType: "paragraph", text: "<b>hello</b>" },
+            { op: "remove", blockId: "old-block-id" },
+          ],
+        },
+      ],
+    });
+    expect(argoPost).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/content$/),
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            entryId: ENTRY,
+            ops: expect.arrayContaining([
+              expect.objectContaining({ op: "append", blockType: "paragraph", text: "<b>hello</b>" }),
+              expect.objectContaining({ op: "remove", blockId: "old-block-id" }),
+            ]),
+          }),
+        ]),
+      })
+    );
+  });
+
+  it("resolves title-form entryId before posting ops", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "Player" }]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY }] });
+    await updateMnemonsContent({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          entryId: "The Misfits",
+          ops: [{ op: "append", blockType: "paragraph", text: "x" }],
+        },
+      ],
+    });
+    const body = argoPost.mock.calls[0][1] as { items: Array<{ entryId: string }> };
+    expect(body.items[0].entryId).toBe(ENTRY);
   });
 });
