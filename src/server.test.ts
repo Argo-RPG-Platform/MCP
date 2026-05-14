@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-vi.mock("./client.js", () => ({
-  argoGet: vi.fn(),
-  argoPost: vi.fn(),
-  argoPatch: vi.fn(),
-  argoDelete: vi.fn(),
-}));
+vi.mock("./client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client.js")>();
+  return {
+    ...actual,
+    argoGet: vi.fn(),
+    argoPost: vi.fn(),
+    argoPatch: vi.fn(),
+    argoDelete: vi.fn(),
+  };
+});
 
 import * as apiClient from "./client.js";
 import { createServer } from "./server.js";
