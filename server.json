@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.argo-rpg-platform/argo-mcp",
+  "name": "io.github.Argo-RPG-Platform/argo-mcp",
   "description": "MCP server for Argo RPG Platform — connects AI assistants to campaign data via OAuth2",
   "version": "1.0.1",
   "repository": {
