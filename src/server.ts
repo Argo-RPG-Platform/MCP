@@ -4,11 +4,14 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { z } from "zod";
+import { z } from "zod";
 import { ArgoApiError } from "./client.js";
 import {
   addCoGm,
   addCoGmInputSchema,
+  campaignOutputSchema,
+  campaignSummaryOutputSchema,
+  coGmOutputSchema,
   createCampaign,
   createCampaignInputSchema,
   getCampaign,
@@ -50,12 +53,19 @@ import {
   deleteMnemonRelationshipInputSchema,
   describeMnemonTypes,
   describeMnemonTypesInputSchema,
+  describeMnemonTypesOutputSchema,
   getMnemon,
   getMnemonInputSchema,
+  linkedEntryOutputSchema,
   listMnemons,
   listMnemonsInputSchema,
   listMnemonRelationships,
   listMnemonRelationshipsInputSchema,
+  mnemonBulkResponseOutputSchema,
+  mnemonEntryOutputSchema,
+  mnemonSummaryOutputSchema,
+  relationshipOutputSchema,
+  relationshipsResponseOutputSchema,
   updateArchiveMnemons,
   updateArchiveMnemonsInputSchema,
   updateCustomMnemons,
@@ -84,12 +94,19 @@ import {
 import {
   inviteUserByEmail,
   inviteUserByEmailInputSchema,
+  sendInvitesResponseOutputSchema,
 } from "./tools/invite.js";
 import {
   forumCreateTopic,
   forumCreateTopicInputSchema,
+  forumCategoriesOutputSchema,
   forumGetLatestTopics,
   forumGetLatestTopicsInputSchema,
+  forumNotificationsOutputSchema,
+  forumPostResponseOutputSchema,
+  forumSearchOutputSchema,
+  forumTopicDetailOutputSchema,
+  forumTopicListOutputSchema,
   forumGetNotifications,
   forumGetNotificationsInputSchema,
   forumGetUserPosts,
@@ -110,6 +127,7 @@ import {
   acceptFriendRequestInputSchema,
   cancelFriendRequest,
   cancelFriendRequestInputSchema,
+  friendRequestRecordOutputSchema,
   listFriends,
   listFriendsInputSchema,
   listReceivedFriendRequests,
@@ -120,14 +138,19 @@ import {
   rejectFriendRequestInputSchema,
   sendFriendRequest,
   sendFriendRequestInputSchema,
+  userDetailOutputSchema,
 } from "./tools/friends.js";
 import {
   addCampaignToGuild,
   addCampaignToGuildInputSchema,
   addGuildCalendarEvent,
   addGuildCalendarEventInputSchema,
+  createdEventResponseOutputSchema,
   getGuild,
   getGuildInputSchema,
+  guildDetailOutputSchema,
+  guildMemberOutputSchema,
+  guildSummaryOutputSchema,
   inviteGuildMember,
   inviteGuildMemberInputSchema,
   listGuildMembers,
@@ -141,6 +164,7 @@ import {
   setGuildMemberRoleInputSchema,
 } from "./tools/guild.js";
 import {
+  campaignSessionOutputSchema,
   createSession,
   createSessionInputSchema,
   getSession,
@@ -152,7 +176,9 @@ import {
   type CampaignSession,
 } from "./tools/calendar.js";
 
-type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
+type ToolTextContent = Array<{ type: "text"; text: string }>;
+type ToolStructuredContent = Record<string, unknown>;
+type ToolResult = { content: ToolTextContent; structuredContent?: ToolStructuredContent; isError?: boolean };
 
 const READ_ONLY = {
   readOnlyHint: true,
@@ -214,33 +240,92 @@ async function runTool<T>(fn: () => Promise<T>, format: (result: T) => ToolResul
 }
 
 const json = (v: unknown) => JSON.stringify(v, null, 2);
+const textContent = (text: string): ToolTextContent => [{ type: "text", text }];
+const withStructuredContent = <T extends object>(text: string, structuredContent: T): ToolResult => ({
+  content: textContent(text),
+  structuredContent: structuredContent as ToolStructuredContent,
+});
+
+const successOutputSchema = z.object({
+  success: z.literal(true),
+});
+
+const campaignListOutputSchema = z.object({
+  campaigns: z.array(campaignSummaryOutputSchema),
+  idMap: z.record(z.string()),
+});
+
+const guildListOutputSchema = z.object({
+  guilds: z.array(guildSummaryOutputSchema),
+  idMap: z.record(z.string()),
+});
+
+const mnemonListOutputSchema = z.object({
+  entries: z.array(mnemonSummaryOutputSchema),
+  idMap: z.record(z.string()),
+});
+
+const coGmListOutputSchema = z.object({
+  items: z.array(coGmOutputSchema),
+});
+
+const sessionListOutputSchema = z.object({
+  items: z.array(campaignSessionOutputSchema),
+});
+
+const guildMemberListOutputSchema = z.object({
+  items: z.array(guildMemberOutputSchema),
+});
+
+const friendListOutputSchema = z.object({
+  items: z.array(userDetailOutputSchema),
+});
+
+const friendRequestListOutputSchema = z.object({
+  items: z.array(friendRequestRecordOutputSchema),
+});
+
+const removeCoGmOutputSchema = successOutputSchema.extend({
+  campaignId: z.string(),
+  userId: z.string(),
+});
+
+const deleteRelationshipOutputSchema = successOutputSchema.extend({
+  campaignId: z.string(),
+  relationshipId: z.string(),
+});
+
+const guildMutationOutputSchema = successOutputSchema.extend({
+  guildId: z.string(),
+});
+
+const guildMemberMutationOutputSchema = guildMutationOutputSchema.extend({
+  userId: z.string(),
+});
+
+const guildRoleMutationOutputSchema = guildMemberMutationOutputSchema.extend({
+  role: z.enum(["Owner", "Admin", "Member"]),
+});
 
 // Format list responses so the human-readable section never contains IDs.
-// The compact [id-map] at the end gives the model what it needs for follow-up
-// tool calls without tempting it to surface raw UUIDs in the chat.
 
 function fmtCampaigns(campaigns: CampaignSummary[]): string {
   const lines = campaigns.map(
     (c) => `• ${c.campaignName}${c.ruleSystem ? ` (${c.ruleSystem})` : ""} — ${c.accessLevel ?? "read"}`
   );
-  const idMap = JSON.stringify(Object.fromEntries(campaigns.map((c) => [c.campaignName, c.id])));
-  return `${campaigns.length} campaign(s):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+  return `${campaigns.length} campaign(s):\n${lines.join("\n")}`;
 }
 
 function fmtGuilds(guilds: GuildSummary[]): string {
   const lines = guilds.map(
     (g) => `• ${g.name} — ${g.role} (${g.memberCount} member${g.memberCount === 1 ? "" : "s"}, ${g.campaignCount} campaign${g.campaignCount === 1 ? "" : "s"})`
   );
-  const idMap = JSON.stringify(Object.fromEntries(guilds.map((g) => [g.name, g.guildId])));
-  return `${guilds.length} guild(s):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+  return `${guilds.length} guild(s):\n${lines.join("\n")}`;
 }
 
 function fmtBulkResponse(resp: MnemonBulkResponse, verb: string): ToolResult {
   const ok = resp.results.filter((r) => r.success);
   const fail = resp.results.filter((r) => !r.success);
-  const idMap = JSON.stringify(
-    Object.fromEntries(ok.filter((r) => r.entryId).map((r) => [r.title ?? `item ${r.index}`, r.entryId]))
-  );
   const parts = [`${verb}: ${ok.length} succeeded, ${fail.length} failed.`];
   if (ok.length) {
     parts.push(
@@ -270,21 +355,13 @@ function fmtBulkResponse(resp: MnemonBulkResponse, verb: string): ToolResult {
     const more = warningLines.length - shown.length;
     parts.push(`Warnings:\n${shown.join("\n")}${more > 0 ? `\n• …and ${more} more` : ""}`);
   }
-  parts.push(`[id-map for tool calls, do not display: ${idMap}]`);
-  return { content: [{ type: "text", text: parts.join("\n\n") }] };
+  return withStructuredContent(parts.join("\n\n"), resp);
 }
 
 function fmtMnemons(entries: MnemonSummary[]): string {
   const lines = entries.map((e) => `• ${e.title} [${e.type}]`);
-  // Key is "title|type" so duplicate titles across different types don't collide.
-  const idMap = JSON.stringify(Object.fromEntries(entries.map((e) => [`${e.title}|${e.type}`, e.entryId])));
-  return `${entries.length} entry(ies):\n${lines.join("\n")}\n\n[id-map for tool calls, do not display: ${idMap}]`;
+  return `${entries.length} entry(ies):\n${lines.join("\n")}`;
 }
-
-// Inline ID hint for write responses — lets the model chain tool calls
-// (e.g. create then immediately relate) without an extra list round-trip.
-const idHint = (label: string, id: string) =>
-  `\n[${label} for tool calls, do not display: ${id}]`;
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -313,7 +390,13 @@ export function createServer(): McpServer {
   ): void {
     server.registerTool(
       name,
-      { description, inputSchema: schema.shape, annotations: WRITE_SAFE, _meta: WRITE_META },
+      {
+        description,
+        inputSchema: schema.shape,
+        outputSchema: mnemonBulkResponseOutputSchema,
+        annotations: WRITE_SAFE,
+        _meta: WRITE_META,
+      },
       (input: z.infer<S>) =>
         runTool(
           () => fn(input),
@@ -331,7 +414,13 @@ export function createServer(): McpServer {
   ): void {
     server.registerTool(
       name,
-      { description, inputSchema: schema.shape, annotations: WRITE_SAFE, _meta: WRITE_META },
+      {
+        description,
+        inputSchema: schema.shape,
+        outputSchema: mnemonBulkResponseOutputSchema,
+        annotations: WRITE_SAFE,
+        _meta: WRITE_META,
+      },
       (input: z.infer<S>) =>
         runTool(
           () => fn(input),
@@ -353,20 +442,22 @@ export function createServer(): McpServer {
         "campaign ID — it returns all campaign IDs and names you can then use with other tools. " +
         "In responses, refer to campaigns by campaignName — never expose the id field to the user.",
       inputSchema: listCampaignsInputSchema.shape,
+      outputSchema: campaignListOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     () =>
       runTool(
         () => listCampaigns(),
-        (campaigns: CampaignSummary[]) => ({
-          content: [{
-            type: "text",
-            text: campaigns.length === 0
-              ? "No campaigns found in the current grant. The token may not cover any campaigns."
-              : fmtCampaigns(campaigns),
-          }],
-        })
+        (campaigns: CampaignSummary[]) => withStructuredContent(
+          campaigns.length === 0
+            ? "No campaigns found in the current grant. The token may not cover any campaigns."
+            : fmtCampaigns(campaigns),
+          {
+            campaigns,
+            idMap: Object.fromEntries(campaigns.map((c) => [c.campaignName, c.id])),
+          }
+        )
       )
   );
 
@@ -376,13 +467,14 @@ export function createServer(): McpServer {
       description:
         "Retrieve details of an Argo campaign (name, description, rule system, co-GMs).",
       inputSchema: getCampaignInputSchema.shape,
+      outputSchema: campaignOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => getCampaign(input),
-        (campaign) => ({ content: [{ type: "text", text: json(campaign) }] })
+        (campaign) => withStructuredContent(json(campaign), campaign)
       )
   );
 
@@ -398,18 +490,17 @@ export function createServer(): McpServer {
         "read+write access to the new campaign immediately (no re-consent needed). " +
         "Requires the campaign.create OAuth scope, granted at consent time.",
       inputSchema: createCampaignInputSchema.shape,
+      outputSchema: campaignSummaryOutputSchema,
       annotations: WRITE_SAFE,
       _meta: CREATE_META,
     },
     (input) =>
       runTool(
         () => createCampaign(input),
-        (campaign) => ({
-          content: [{
-            type: "text",
-            text: `Created campaign: "${campaign.campaignName}".\n\n${json(campaign)}`,
-          }],
-        })
+        (campaign) => withStructuredContent(
+          `Created campaign: "${campaign.campaignName}".\n\n${json(campaign)}`,
+          campaign
+        )
       )
   );
 
@@ -425,18 +516,17 @@ export function createServer(): McpServer {
         "supplied fields are changed; pass an empty string to clear the description. " +
         "GMs and co-GMs can call this; rule-system swaps remain WebApp-only.",
       inputSchema: updateCampaignInputSchema.shape,
+      outputSchema: campaignOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => updateCampaign(input),
-        (campaign) => ({
-          content: [{
-            type: "text",
-            text: `Updated campaign "${campaign.campaignName}".\n\n${json(campaign)}`,
-          }],
-        })
+        (campaign) => withStructuredContent(
+          `Updated campaign "${campaign.campaignName}".\n\n${json(campaign)}`,
+          campaign
+        )
       )
   );
 
@@ -449,18 +539,17 @@ export function createServer(): McpServer {
     {
       description: "List the assistant GMs (co-GMs) of a campaign.",
       inputSchema: listCoGmsInputSchema.shape,
+      outputSchema: coGmListOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => listCoGms(input),
-        (cogms: CoGm[]) => ({
-          content: [{
-            type: "text",
-            text: cogms.length === 0 ? "No co-GMs on this campaign." : json(cogms),
-          }],
-        })
+        (cogms: CoGm[]) => withStructuredContent(
+          cogms.length === 0 ? "No co-GMs on this campaign." : json(cogms),
+          { items: cogms }
+        )
       )
   );
 
@@ -471,15 +560,17 @@ export function createServer(): McpServer {
         "Add a user as an assistant GM (co-GM) of a campaign. Owner-only — the calling user must " +
         "be the campaign's primary GM. Maximum 5 co-GMs per campaign.",
       inputSchema: addCoGmInputSchema.shape,
+      outputSchema: campaignOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => addCoGm(input),
-        (campaign: Campaign) => ({
-          content: [{ type: "text", text: `Added co-GM. Current co-GMs: ${json(campaign.coGameMasterIds ?? [])}` }],
-        })
+        (campaign: Campaign) => withStructuredContent(
+          `Added co-GM. Current co-GMs: ${json(campaign.coGameMasterIds ?? [])}`,
+          campaign
+        )
       )
   );
 
@@ -489,13 +580,18 @@ export function createServer(): McpServer {
       description:
         "Remove a co-GM from a campaign. Owner-only or self-removal.",
       inputSchema: removeCoGmInputSchema.shape,
+      outputSchema: removeCoGmOutputSchema,
       annotations: WRITE_DESTRUCTIVE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => removeCoGm(input),
-        () => ({ content: [{ type: "text", text: `Removed co-GM.` }] })
+        () => withStructuredContent("Removed co-GM.", {
+          success: true as const,
+          campaignId: input.campaignId,
+          userId: input.userId,
+        })
       )
   );
 
@@ -512,13 +608,14 @@ export function createServer(): McpServer {
         "Call this before create_mnemon or create_mnemon_relationship when you are " +
         "unsure which type or label to use. NPC subtype is strictly FACTION | INDIVIDUAL.",
       inputSchema: describeMnemonTypesInputSchema.shape,
+      outputSchema: describeMnemonTypesOutputSchema,
       annotations: READ_ONLY,
       _meta: NO_META,
     },
     () =>
       runTool(
         () => Promise.resolve(describeMnemonTypes()),
-        (catalog) => ({ content: [{ type: "text", text: json(catalog) }] })
+        (catalog) => withStructuredContent(json(catalog), catalog)
       )
   );
 
@@ -531,18 +628,20 @@ export function createServer(): McpServer {
         "`type` (e.g. NPC, Location, Quest). Returns all matching entries — pagination is automatic. " +
         "In responses, refer to entries by title — never expose entryId to the user.",
       inputSchema: listMnemonsInputSchema.shape,
+      outputSchema: mnemonListOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => listMnemons(input),
-        (entries: MnemonSummary[]) => ({
-          content: [{
-            type: "text",
-            text: entries.length === 0 ? "No mnemon entries found." : fmtMnemons(entries),
-          }],
-        })
+        (entries: MnemonSummary[]) => withStructuredContent(
+          entries.length === 0 ? "No mnemon entries found." : fmtMnemons(entries),
+          {
+            entries,
+            idMap: Object.fromEntries(entries.map((e) => [`${e.title}|${e.type}`, e.entryId])),
+          }
+        )
       )
   );
 
@@ -551,13 +650,14 @@ export function createServer(): McpServer {
     {
       description: "Get the full details of a specific mnemon entry (title, blocks, type properties).",
       inputSchema: getMnemonInputSchema.shape,
+      outputSchema: mnemonEntryOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => getMnemon(input),
-        (entry) => ({ content: [{ type: "text", text: json(entry) }] })
+        (entry) => withStructuredContent(json(entry), entry)
       )
   );
 
@@ -569,13 +669,14 @@ export function createServer(): McpServer {
         "and a flat list of linked entries (entryId/title/type/relationshipTypes). " +
         "Use this to find members of a faction, allies/enemies of an NPC, etc.",
       inputSchema: listMnemonRelationshipsInputSchema.shape,
+      outputSchema: relationshipsResponseOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => listMnemonRelationships(input),
-        (resp: RelationshipsResponse) => ({ content: [{ type: "text", text: json(resp) }] })
+        (resp: RelationshipsResponse) => withStructuredContent(json(resp), resp)
       )
   );
 
@@ -713,6 +814,7 @@ export function createServer(): McpServer {
         "Inline <img src=\"data:...\"> or <img src=\"https://...\"> is uploaded to the campaign asset bucket and the src is rewritten to asset:<id>. SSRF-blocked / oversize / failed fetches are stripped with a warning. " +
         "On a bad op (missing blockId, unknown blockType, etc.) the whole entry's batch is rejected with the failedOpIndex; no partial mutation per entry.",
       inputSchema: updateMnemonsContentInputSchema.shape,
+      outputSchema: mnemonBulkResponseOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
@@ -737,15 +839,14 @@ export function createServer(): McpServer {
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
         "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
+      outputSchema: relationshipOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => createMnemonRelationship(input),
-        (rel: Relationship) => ({
-          content: [{ type: "text", text: `Created ${rel.label} relationship.` }],
-        })
+        (rel: Relationship) => withStructuredContent(`Created ${rel.label} relationship.`, rel)
       )
   );
 
@@ -754,13 +855,18 @@ export function createServer(): McpServer {
     {
       description: "Delete a relationship by id.",
       inputSchema: deleteMnemonRelationshipInputSchema.shape,
+      outputSchema: deleteRelationshipOutputSchema,
       annotations: WRITE_DESTRUCTIVE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => deleteMnemonRelationship(input),
-        () => ({ content: [{ type: "text", text: `Deleted relationship.` }] })
+        () => withStructuredContent("Deleted relationship.", {
+          success: true as const,
+          campaignId: input.campaignId,
+          relationshipId: input.relationshipId,
+        })
       )
   );
 
@@ -775,15 +881,14 @@ export function createServer(): McpServer {
         "Schedule a campaign session. Provide an ISO-8601 startAt; endAt is optional. " +
         "Useful for laying out planned arcs or recurring play nights.",
       inputSchema: createSessionInputSchema.shape,
+      outputSchema: campaignSessionOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => createSession(input),
-        (s: CampaignSession) => ({
-          content: [{ type: "text", text: `Scheduled "${s.title}" @ ${s.startAt}.` }],
-        })
+        (s: CampaignSession) => withStructuredContent(`Scheduled "${s.title}" @ ${s.startAt}.`, s)
       )
   );
 
@@ -793,18 +898,17 @@ export function createServer(): McpServer {
       description:
         "List campaign sessions for a given month (defaults to the current month).",
       inputSchema: listSessionsInputSchema.shape,
+      outputSchema: sessionListOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => listSessions(input),
-        (sessions: CampaignSession[]) => ({
-          content: [{
-            type: "text",
-            text: sessions.length === 0 ? "No sessions scheduled in this window." : json(sessions),
-          }],
-        })
+        (sessions: CampaignSession[]) => withStructuredContent(
+          sessions.length === 0 ? "No sessions scheduled in this window." : json(sessions),
+          { items: sessions }
+        )
       )
   );
 
@@ -813,13 +917,14 @@ export function createServer(): McpServer {
     {
       description: "Get details of a single campaign session.",
       inputSchema: getSessionInputSchema.shape,
+      outputSchema: campaignSessionOutputSchema,
       annotations: READ_ONLY,
       _meta: READ_META,
     },
     (input) =>
       runTool(
         () => getSession(input),
-        (s: CampaignSession) => ({ content: [{ type: "text", text: json(s) }] })
+        (s: CampaignSession) => withStructuredContent(json(s), s)
       )
   );
 
@@ -830,13 +935,14 @@ export function createServer(): McpServer {
         "Reschedule a campaign session or edit its title/description. All fields optional. " +
         "Owner-only on the backend.",
       inputSchema: updateSessionInputSchema.shape,
+      outputSchema: campaignSessionOutputSchema,
       annotations: WRITE_SAFE,
       _meta: WRITE_META,
     },
     (input) =>
       runTool(
         () => updateSession(input),
-        (s: CampaignSession) => ({ content: [{ type: "text", text: `Updated session "${s.title}".` }] })
+        (s: CampaignSession) => withStructuredContent(`Updated session "${s.title}".`, s)
       )
   );
 
@@ -852,20 +958,22 @@ export function createServer(): McpServer {
         "member count, and campaign count. Requires the guild.read scope. " +
         "In responses, refer to guilds by name — never expose guildId to the user.",
       inputSchema: listGuildsInputSchema.shape,
+      outputSchema: guildListOutputSchema,
       annotations: READ_ONLY,
       _meta: GUILD_READ_META,
     },
     () =>
       runTool(
         () => listGuilds(),
-        (guilds) => ({
-          content: [{
-            type: "text",
-            text: guilds.length === 0
-              ? "You are not a member of any guilds."
-              : fmtGuilds(guilds),
-          }],
-        })
+        (guilds) => withStructuredContent(
+          guilds.length === 0
+            ? "You are not a member of any guilds."
+            : fmtGuilds(guilds),
+          {
+            guilds,
+            idMap: Object.fromEntries(guilds.map((g) => [g.name, g.guildId])),
+          }
+        )
       )
   );
 
@@ -874,13 +982,14 @@ export function createServer(): McpServer {
     {
       description: "Retrieve full details of a guild (members, campaigns, calendar metadata).",
       inputSchema: getGuildInputSchema.shape,
+      outputSchema: guildDetailOutputSchema,
       annotations: READ_ONLY,
       _meta: GUILD_READ_META,
     },
     (input) =>
       runTool(
         () => getGuild(input),
-        (guild) => ({ content: [{ type: "text", text: json(guild) }] })
+        (guild) => withStructuredContent(json(guild), guild)
       )
   );
 
@@ -889,18 +998,17 @@ export function createServer(): McpServer {
     {
       description: "List the members of a guild (id, role, status, invitedAt, joinedAt).",
       inputSchema: listGuildMembersInputSchema.shape,
+      outputSchema: guildMemberListOutputSchema,
       annotations: READ_ONLY,
       _meta: GUILD_READ_META,
     },
     (input) =>
       runTool(
         () => listGuildMembers(input),
-        (members) => ({
-          content: [{
-            type: "text",
-            text: members.length === 0 ? "Guild has no members." : json(members),
-          }],
-        })
+        (members) => withStructuredContent(
+          members.length === 0 ? "Guild has no members." : json(members),
+          { items: members }
+        )
       )
   );
 
@@ -915,17 +1023,19 @@ export function createServer(): McpServer {
         "Add a campaign to a guild. Any active member of the guild can do this; " +
         "the calling user must be the campaign's GM (enforced server-side).",
       inputSchema: addCampaignToGuildInputSchema.shape,
+      outputSchema: guildMutationOutputSchema.extend({
+        campaignId: z.string(),
+      }),
       annotations: WRITE_SAFE,
       _meta: GUILD_WRITE_META,
     },
     (input) =>
       runTool(
         () => addCampaignToGuild(input),
-        () => ({
-          content: [{
-            type: "text",
-            text: `Added campaign to guild.`,
-          }],
+        () => withStructuredContent("Added campaign to guild.", {
+          success: true as const,
+          guildId: input.guildId,
+          campaignId: input.campaignId,
         })
       )
   );
@@ -939,13 +1049,18 @@ export function createServer(): McpServer {
     {
       description: "Invite a user to join the guild. Owner/Admin only.",
       inputSchema: inviteGuildMemberInputSchema.shape,
+      outputSchema: guildMemberMutationOutputSchema,
       annotations: WRITE_SAFE,
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
       runTool(
         () => inviteGuildMember(input),
-        () => ({ content: [{ type: "text", text: `Invited user to guild.` }] })
+        () => withStructuredContent("Invited user to guild.", {
+          success: true as const,
+          guildId: input.guildId,
+          userId: input.userId,
+        })
       )
   );
 
@@ -954,13 +1069,18 @@ export function createServer(): McpServer {
     {
       description: "Remove a member from the guild. Owner/Admin only.",
       inputSchema: removeGuildMemberInputSchema.shape,
+      outputSchema: guildMemberMutationOutputSchema,
       annotations: WRITE_DESTRUCTIVE,
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
       runTool(
         () => removeGuildMember(input),
-        () => ({ content: [{ type: "text", text: `Removed member from guild.` }] })
+        () => withStructuredContent("Removed member from guild.", {
+          success: true as const,
+          guildId: input.guildId,
+          userId: input.userId,
+        })
       )
   );
 
@@ -971,17 +1091,18 @@ export function createServer(): McpServer {
         "Change a guild member's role to Owner, Admin, or Member. Owner/Admin only. " +
         "Note that promoting another user to Owner transfers the guild — confirm with the user first.",
       inputSchema: setGuildMemberRoleInputSchema.shape,
+      outputSchema: guildRoleMutationOutputSchema,
       annotations: WRITE_SAFE,
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
       runTool(
         () => setGuildMemberRole(input),
-        () => ({
-          content: [{
-            type: "text",
-            text: `Set role to ${input.role}.`,
-          }],
+        () => withStructuredContent(`Set role to ${input.role}.`, {
+          success: true as const,
+          guildId: input.guildId,
+          userId: input.userId,
+          role: input.role,
         })
       )
   );
@@ -993,18 +1114,14 @@ export function createServer(): McpServer {
         "Add a new event to the guild's shared calendar. Owner/Admin only. " +
         "startDateTime / endDateTime are ISO-8601 (e.g. 2026-06-12T19:00:00).",
       inputSchema: addGuildCalendarEventInputSchema.shape,
+      outputSchema: createdEventResponseOutputSchema,
       annotations: WRITE_SAFE,
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
       runTool(
         () => addGuildCalendarEvent(input),
-        (resp) => ({
-          content: [{
-            type: "text",
-            text: `Created calendar event.`,
-          }],
-        })
+        (resp) => withStructuredContent("Created calendar event.", resp)
       )
   );
 
@@ -1017,18 +1134,17 @@ export function createServer(): McpServer {
     {
       description: "List the current user's accepted friends.",
       inputSchema: listFriendsInputSchema.shape,
+      outputSchema: friendListOutputSchema,
       annotations: READ_ONLY,
       _meta: FRIENDS_READ_META,
     },
     () =>
       runTool(
         () => listFriends(),
-        (friends) => ({
-          content: [{
-            type: "text",
-            text: friends.length === 0 ? "You have no friends yet." : json(friends),
-          }],
-        })
+        (friends) => withStructuredContent(
+          friends.length === 0 ? "You have no friends yet." : json(friends),
+          { items: friends }
+        )
       )
   );
 
@@ -1037,18 +1153,17 @@ export function createServer(): McpServer {
     {
       description: "List outgoing friend requests that are still pending.",
       inputSchema: listSentFriendRequestsInputSchema.shape,
+      outputSchema: friendRequestListOutputSchema,
       annotations: READ_ONLY,
       _meta: FRIENDS_READ_META,
     },
     () =>
       runTool(
         () => listSentFriendRequests(),
-        (reqs) => ({
-          content: [{
-            type: "text",
-            text: reqs.length === 0 ? "No pending sent requests." : json(reqs),
-          }],
-        })
+        (reqs) => withStructuredContent(
+          reqs.length === 0 ? "No pending sent requests." : json(reqs),
+          { items: reqs }
+        )
       )
   );
 
@@ -1057,18 +1172,17 @@ export function createServer(): McpServer {
     {
       description: "List incoming friend requests awaiting your response.",
       inputSchema: listReceivedFriendRequestsInputSchema.shape,
+      outputSchema: friendRequestListOutputSchema,
       annotations: READ_ONLY,
       _meta: FRIENDS_READ_META,
     },
     () =>
       runTool(
         () => listReceivedFriendRequests(),
-        (reqs) => ({
-          content: [{
-            type: "text",
-            text: reqs.length === 0 ? "No pending received requests." : json(reqs),
-          }],
-        })
+        (reqs) => withStructuredContent(
+          reqs.length === 0 ? "No pending received requests." : json(reqs),
+          { items: reqs }
+        )
       )
   );
 
@@ -1077,13 +1191,14 @@ export function createServer(): McpServer {
     {
       description: "Send a friend request to another Argo user.",
       inputSchema: sendFriendRequestInputSchema.shape,
+      outputSchema: friendRequestRecordOutputSchema,
       annotations: WRITE_SAFE,
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
       runTool(
         () => sendFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Friend request sent.` }] })
+        (request) => withStructuredContent("Friend request sent.", request)
       )
   );
 
@@ -1092,13 +1207,14 @@ export function createServer(): McpServer {
     {
       description: "Accept an incoming friend request from the given user.",
       inputSchema: acceptFriendRequestInputSchema.shape,
+      outputSchema: friendRequestRecordOutputSchema,
       annotations: WRITE_SAFE,
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
       runTool(
         () => acceptFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Friend request accepted.` }] })
+        (request) => withStructuredContent("Friend request accepted.", request)
       )
   );
 
@@ -1107,13 +1223,14 @@ export function createServer(): McpServer {
     {
       description: "Reject an incoming friend request from the given user.",
       inputSchema: rejectFriendRequestInputSchema.shape,
+      outputSchema: friendRequestRecordOutputSchema,
       annotations: WRITE_DESTRUCTIVE,
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
       runTool(
         () => rejectFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Friend request rejected.` }] })
+        (request) => withStructuredContent("Friend request rejected.", request)
       )
   );
 
@@ -1122,13 +1239,14 @@ export function createServer(): McpServer {
     {
       description: "Cancel a friend request you previously sent.",
       inputSchema: cancelFriendRequestInputSchema.shape,
+      outputSchema: friendRequestRecordOutputSchema,
       annotations: WRITE_DESTRUCTIVE,
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
       runTool(
         () => cancelFriendRequest(input),
-        () => ({ content: [{ type: "text", text: `Friend request cancelled.` }] })
+        (request) => withStructuredContent("Friend request cancelled.", request)
       )
   );
 
@@ -1143,18 +1261,18 @@ export function createServer(): McpServer {
         "Send Argo email invitations to up to 20 addresses on behalf of the current user. " +
         "Recipients receive a sign-up link. No campaign or guild context is required.",
       inputSchema: inviteUserByEmailInputSchema.shape,
-      annotations: WRITE_SAFE,
+      outputSchema: sendInvitesResponseOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
       _meta: INVITE_WRITE_META,
     },
     (input) =>
       runTool(
         () => inviteUserByEmail(input),
-        (resp) => ({
-          content: [{
-            type: "text",
-            text: `Invite results:\n${json(resp.results)}`,
-          }],
-        })
+        (resp) => withStructuredContent(`Invite results:\n${json(resp.results)}`, resp)
       )
   );
 
@@ -1170,13 +1288,14 @@ export function createServer(): McpServer {
         "Call this first when the user wants to post a bug report or feature request — " +
         "you need the categoryId to create a topic.",
       inputSchema: forumListCategoriesInputSchema.shape,
+      outputSchema: forumCategoriesOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     () =>
       runTool(
         () => forumListCategories(),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1185,13 +1304,14 @@ export function createServer(): McpServer {
     {
       description: "List topics in a specific forum category. Use forum_list_categories to get category slugs and IDs.",
       inputSchema: forumListTopicsInputSchema.shape,
+      outputSchema: forumTopicListOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     (input) =>
       runTool(
         () => forumListTopics(input),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1200,13 +1320,14 @@ export function createServer(): McpServer {
     {
       description: "Get the latest active topics across all forum categories.",
       inputSchema: forumGetLatestTopicsInputSchema.shape,
+      outputSchema: forumTopicListOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     () =>
       runTool(
         () => forumGetLatestTopics(),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1215,13 +1336,14 @@ export function createServer(): McpServer {
     {
       description: "Read the full content of a forum topic including all posts and replies.",
       inputSchema: forumReadTopicInputSchema.shape,
+      outputSchema: forumTopicDetailOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     (input) =>
       runTool(
         () => forumReadTopic(input),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1233,13 +1355,14 @@ export function createServer(): McpServer {
         "#category-slug to filter by category, @username to filter by author. " +
         "Always search before creating a bug report or feature request to avoid duplicates.",
       inputSchema: forumSearchInputSchema.shape,
+      outputSchema: forumSearchOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     (input) =>
       runTool(
         () => forumSearch(input),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1248,13 +1371,14 @@ export function createServer(): McpServer {
     {
       description: "List topics created by the current user on the forum.",
       inputSchema: forumGetUserPostsInputSchema.shape,
+      outputSchema: forumTopicListOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     () =>
       runTool(
         () => forumGetUserPosts(),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1263,13 +1387,14 @@ export function createServer(): McpServer {
     {
       description: "Get the current user's forum notifications (replies, mentions, likes).",
       inputSchema: forumGetNotificationsInputSchema.shape,
+      outputSchema: forumNotificationsOutputSchema,
       annotations: READ_ONLY,
       _meta: FORUM_READ_META,
     },
     () =>
       runTool(
         () => forumGetNotifications(),
-        (result) => ({ content: [{ type: "text", text: json(result) }] })
+        (result) => withStructuredContent(json(result), result)
       )
   );
 
@@ -1285,13 +1410,18 @@ export function createServer(): McpServer {
         "Always call forum_search first to check for duplicates. " +
         "Call forum_list_categories to get the correct categoryId.",
       inputSchema: forumCreateTopicInputSchema.shape,
-      annotations: WRITE_SAFE,
+      outputSchema: forumPostResponseOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
       _meta: FORUM_WRITE_META,
     },
     (input) =>
       runTool(
         () => forumCreateTopic(input),
-        (result) => ({ content: [{ type: "text", text: `Topic created.\n\n${json(result)}` }] })
+        (result) => withStructuredContent(`Topic created.\n\n${json(result)}`, result)
       )
   );
 
@@ -1300,13 +1430,18 @@ export function createServer(): McpServer {
     {
       description: "Reply to an existing forum topic.",
       inputSchema: forumReplyInputSchema.shape,
-      annotations: WRITE_SAFE,
+      outputSchema: forumPostResponseOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
       _meta: FORUM_WRITE_META,
     },
     (input) =>
       runTool(
         () => forumReply(input),
-        (result) => ({ content: [{ type: "text", text: `Reply posted.\n\n${json(result)}` }] })
+        (result) => withStructuredContent(`Reply posted.\n\n${json(result)}`, result)
       )
   );
 
