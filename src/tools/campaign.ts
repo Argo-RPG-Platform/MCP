@@ -15,33 +15,33 @@ export interface Campaign {
   id: string;
   gameMasterId: string;
   campaignName: string;
-  campaignDescription?: string;
-  ruleSystem?: string;
-  gameSystemSlug?: string;
-  coGameMasterIds?: string[];
+  campaignDescription?: string | null;
+  ruleSystem?: string | null;
+  gameSystemSlug?: string | null;
+  coGameMasterIds?: string[] | null;
 }
 
 export interface CampaignSummary extends Campaign {
-  accessLevel?: string;
+  accessLevel?: string | null;
 }
 
 export const campaignOutputSchema = z.object({
   id: z.string(),
   gameMasterId: z.string(),
   campaignName: z.string(),
-  campaignDescription: z.string().optional(),
-  ruleSystem: z.string().optional(),
-  gameSystemSlug: z.string().optional(),
-  coGameMasterIds: z.array(z.string()).optional(),
+  campaignDescription: z.string().nullish(),
+  ruleSystem: z.string().nullish(),
+  gameSystemSlug: z.string().nullish(),
+  coGameMasterIds: z.array(z.string()).nullish(),
 });
 
 export const campaignSummaryOutputSchema = campaignOutputSchema.extend({
-  accessLevel: z.string().optional(),
+  accessLevel: z.string().nullish(),
 });
 
 export const coGmOutputSchema = z.object({
   userId: z.string(),
-  displayName: z.string().optional(),
+  displayName: z.string().nullish(),
 });
 
 // ---------------------------------------------------------------------------

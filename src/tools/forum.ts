@@ -13,8 +13,8 @@ export interface ForumCategory {
   id: number;
   name: string;
   slug: string;
-  description_text?: string;
-  subcategory_list?: ForumCategory[];
+  description_text?: string | null;
+  subcategory_list?: ForumCategory[] | null;
   [key: string]: unknown;
 }
 
@@ -33,10 +33,10 @@ export interface ForumTopicSummary {
   posts_count: number;
   reply_count: number;
   created_at: string;
-  last_posted_at?: string;
-  category_id?: number;
-  tags?: string[];
-  excerpt?: string;
+  last_posted_at?: string | null;
+  category_id?: number | null;
+  tags?: string[] | null;
+  excerpt?: string | null;
   [key: string]: unknown;
 }
 
@@ -50,10 +50,10 @@ export interface ForumTopicListResponse {
 
 export interface ForumTopicPost {
   id: number;
-  username?: string;
-  cooked?: string;
-  created_at?: string;
-  reply_count?: number;
+  username?: string | null;
+  cooked?: string | null;
+  created_at?: string | null;
+  reply_count?: number | null;
   [key: string]: unknown;
 }
 
@@ -70,28 +70,28 @@ export interface ForumTopicDetailResponse {
 
 export interface ForumSearchPost {
   id: number;
-  topic_id?: number;
-  username?: string;
-  cooked?: string;
-  created_at?: string;
+  topic_id?: number | null;
+  username?: string | null;
+  cooked?: string | null;
+  created_at?: string | null;
   [key: string]: unknown;
 }
 
 export interface ForumSearchResponse {
-  topics?: ForumTopicSummary[];
-  posts?: ForumSearchPost[];
-  grouped_search_result?: Record<string, unknown>;
+  topics?: ForumTopicSummary[] | null;
+  posts?: ForumSearchPost[] | null;
+  grouped_search_result?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 
 export interface ForumNotification {
   id: number;
-  notification_type?: number;
-  read?: boolean;
-  created_at?: string;
-  topic_id?: number;
-  post_number?: number;
-  data?: Record<string, unknown>;
+  notification_type?: number | null;
+  read?: boolean | null;
+  created_at?: string | null;
+  topic_id?: number | null;
+  post_number?: number | null;
+  data?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 
@@ -102,10 +102,10 @@ export interface ForumNotificationsResponse {
 
 export interface ForumPostResponse {
   id: number;
-  topic_id?: number;
-  topic_slug?: string;
-  post_number?: number;
-  username?: string;
+  topic_id?: number | null;
+  topic_slug?: string | null;
+  post_number?: number | null;
+  username?: string | null;
   [key: string]: unknown;
 }
 
@@ -114,8 +114,8 @@ const forumCategoryOutputSchema: z.ZodType<ForumCategory> = z.lazy(() =>
     id: z.number(),
     name: z.string(),
     slug: z.string(),
-    description_text: z.string().optional(),
-    subcategory_list: z.array(forumCategoryOutputSchema).optional(),
+    description_text: z.string().nullish(),
+    subcategory_list: z.array(forumCategoryOutputSchema).nullish(),
   }).passthrough()
 );
 
@@ -132,10 +132,10 @@ export const forumTopicSummaryOutputSchema: z.ZodType<ForumTopicSummary> = z.obj
   posts_count: z.number(),
   reply_count: z.number(),
   created_at: z.string(),
-  last_posted_at: z.string().optional(),
-  category_id: z.number().optional(),
-  tags: z.array(z.string()).optional(),
-  excerpt: z.string().optional(),
+  last_posted_at: z.string().nullish(),
+  category_id: z.number().nullish(),
+  tags: z.array(z.string()).nullish(),
+  excerpt: z.string().nullish(),
 }).passthrough();
 
 export const forumTopicListOutputSchema: z.ZodType<ForumTopicListResponse> = z.object({
@@ -146,10 +146,10 @@ export const forumTopicListOutputSchema: z.ZodType<ForumTopicListResponse> = z.o
 
 export const forumTopicPostOutputSchema: z.ZodType<ForumTopicPost> = z.object({
   id: z.number(),
-  username: z.string().optional(),
-  cooked: z.string().optional(),
-  created_at: z.string().optional(),
-  reply_count: z.number().optional(),
+  username: z.string().nullish(),
+  cooked: z.string().nullish(),
+  created_at: z.string().nullish(),
+  reply_count: z.number().nullish(),
 }).passthrough();
 
 export const forumTopicDetailOutputSchema: z.ZodType<ForumTopicDetailResponse> = z.object({
@@ -163,36 +163,36 @@ export const forumTopicDetailOutputSchema: z.ZodType<ForumTopicDetailResponse> =
 
 export const forumSearchPostOutputSchema: z.ZodType<ForumSearchPost> = z.object({
   id: z.number(),
-  topic_id: z.number().optional(),
-  username: z.string().optional(),
-  cooked: z.string().optional(),
-  created_at: z.string().optional(),
+  topic_id: z.number().nullish(),
+  username: z.string().nullish(),
+  cooked: z.string().nullish(),
+  created_at: z.string().nullish(),
 }).passthrough();
 
 export const forumSearchOutputSchema: z.ZodType<ForumSearchResponse> = z.object({
-  topics: z.array(forumTopicSummaryOutputSchema).optional(),
-  posts: z.array(forumSearchPostOutputSchema).optional(),
-  grouped_search_result: z.record(z.unknown()).optional(),
+  topics: z.array(forumTopicSummaryOutputSchema).nullish(),
+  posts: z.array(forumSearchPostOutputSchema).nullish(),
+  grouped_search_result: z.record(z.unknown()).nullish(),
 }).passthrough();
 
 export const forumNotificationsOutputSchema: z.ZodType<ForumNotificationsResponse> = z.object({
   notifications: z.array(z.object({
     id: z.number(),
-    notification_type: z.number().optional(),
-    read: z.boolean().optional(),
-    created_at: z.string().optional(),
-    topic_id: z.number().optional(),
-    post_number: z.number().optional(),
-    data: z.record(z.unknown()).optional(),
+    notification_type: z.number().nullish(),
+    read: z.boolean().nullish(),
+    created_at: z.string().nullish(),
+    topic_id: z.number().nullish(),
+    post_number: z.number().nullish(),
+    data: z.record(z.unknown()).nullish(),
   }).passthrough()),
 }).passthrough();
 
 export const forumPostResponseOutputSchema: z.ZodType<ForumPostResponse> = z.object({
   id: z.number(),
-  topic_id: z.number().optional(),
-  topic_slug: z.string().optional(),
-  post_number: z.number().optional(),
-  username: z.string().optional(),
+  topic_id: z.number().nullish(),
+  topic_slug: z.string().nullish(),
+  post_number: z.number().nullish(),
+  username: z.string().nullish(),
 }).passthrough();
 
 // ---------------------------------------------------------------------------

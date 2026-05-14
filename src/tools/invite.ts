@@ -10,7 +10,7 @@ import { argoPost } from "../client.js";
 export interface InviteResult {
   email: string;
   status: string;
-  message?: string;
+  message?: string | null;
 }
 
 export interface SendInvitesResponse {
@@ -20,7 +20,7 @@ export interface SendInvitesResponse {
 export const inviteResultOutputSchema = z.object({
   email: z.string(),
   status: z.string(),
-  message: z.string().optional(),
+  message: z.string().nullish(),
 });
 
 export const sendInvitesResponseOutputSchema = z.object({

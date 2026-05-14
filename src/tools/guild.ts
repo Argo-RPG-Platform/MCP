@@ -19,18 +19,23 @@ export interface GuildSummary {
 
 export interface GuildMember {
   userId: string;
-  role?: string;
-  status?: string;
-  invitedAt?: string;
-  joinedAt?: string;
+  role?: string | null;
+  status?: string | null;
+  invitedAt?: string | null;
+  joinedAt?: string | null;
 }
 
 export interface GuildDetail {
   id: string;
   ownerId: string;
-  summary?: { name?: string; description?: string; color?: string; imageUrl?: string };
-  members?: GuildMember[];
-  campaignIds?: string[];
+  summary?: {
+    name?: string | null;
+    description?: string | null;
+    color?: string | null;
+    imageUrl?: string | null;
+  } | null;
+  members?: GuildMember[] | null;
+  campaignIds?: string[] | null;
 }
 
 export const guildSummaryOutputSchema = z.object({
@@ -44,23 +49,23 @@ export const guildSummaryOutputSchema = z.object({
 
 export const guildMemberOutputSchema = z.object({
   userId: z.string(),
-  role: z.string().optional(),
-  status: z.string().optional(),
-  invitedAt: z.string().optional(),
-  joinedAt: z.string().optional(),
+  role: z.string().nullish(),
+  status: z.string().nullish(),
+  invitedAt: z.string().nullish(),
+  joinedAt: z.string().nullish(),
 });
 
 export const guildDetailOutputSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
   summary: z.object({
-    name: z.string().optional(),
-    description: z.string().optional(),
-    color: z.string().optional(),
-    imageUrl: z.string().optional(),
-  }).optional(),
-  members: z.array(guildMemberOutputSchema).optional(),
-  campaignIds: z.array(z.string()).optional(),
+    name: z.string().nullish(),
+    description: z.string().nullish(),
+    color: z.string().nullish(),
+    imageUrl: z.string().nullish(),
+  }).nullish(),
+  members: z.array(guildMemberOutputSchema).nullish(),
+  campaignIds: z.array(z.string()).nullish(),
 });
 
 // ---------------------------------------------------------------------------
