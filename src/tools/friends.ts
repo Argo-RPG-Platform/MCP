@@ -22,6 +22,21 @@ export interface FriendRequestRecord {
   updatedAt?: string;
 }
 
+export const userDetailOutputSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  email: z.string().optional(),
+});
+
+export const friendRequestRecordOutputSchema = z.object({
+  id: z.string(),
+  senderId: z.string(),
+  receiverId: z.string(),
+  status: z.string(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
 const targetSchema = z.object({
   userId: z.string().min(1).describe("Argo user ID of the counterparty."),
 });

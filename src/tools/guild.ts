@@ -33,6 +33,36 @@ export interface GuildDetail {
   campaignIds?: string[];
 }
 
+export const guildSummaryOutputSchema = z.object({
+  guildId: z.string(),
+  name: z.string(),
+  role: z.string(),
+  canAdmin: z.boolean(),
+  memberCount: z.number(),
+  campaignCount: z.number(),
+});
+
+export const guildMemberOutputSchema = z.object({
+  userId: z.string(),
+  role: z.string().optional(),
+  status: z.string().optional(),
+  invitedAt: z.string().optional(),
+  joinedAt: z.string().optional(),
+});
+
+export const guildDetailOutputSchema = z.object({
+  id: z.string(),
+  ownerId: z.string(),
+  summary: z.object({
+    name: z.string().optional(),
+    description: z.string().optional(),
+    color: z.string().optional(),
+    imageUrl: z.string().optional(),
+  }).optional(),
+  members: z.array(guildMemberOutputSchema).optional(),
+  campaignIds: z.array(z.string()).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Reads (guild.read)
 // ---------------------------------------------------------------------------
@@ -146,6 +176,10 @@ export const addGuildCalendarEventInputSchema = z.object({
 export interface CreatedEventResponse {
   id: string;
 }
+
+export const createdEventResponseOutputSchema = z.object({
+  id: z.string(),
+});
 
 export async function addGuildCalendarEvent(
   input: z.infer<typeof addGuildCalendarEventInputSchema>
