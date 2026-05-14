@@ -14,7 +14,75 @@ Supported clients: Claude Code, Claude Desktop, OpenAI Codex, and any MCP-compat
 
 ---
 
-## Setup
+## Quick start
+
+There are three supported ways to use the Argo MCP server. Pick the one that matches your client.
+
+### ChatGPT (remote)
+
+Use the hosted endpoint — **do not** install the npx package. Add this MCP server URL to ChatGPT:
+
+```
+https://mcp.argo.games/mcp
+```
+
+ChatGPT will walk you through OAuth on first connect via dynamic client registration.
+
+### Local MCP clients (Claude Code, Claude Desktop, Codex, etc.) — recommended
+
+Sign in once on the machine that runs the MCP client:
+
+```bash
+npx -y argo-mcp auth login
+```
+
+The command prints the consent URL, opens nothing, and asks you to paste the access token (and optionally the refresh token) from the consent page. Tokens are saved locally:
+
+- Windows: `%APPDATA%\argo-mcp\tokens.json`
+- macOS: `~/Library/Application Support/argo-mcp/tokens.json`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/argo-mcp/tokens.json`
+
+Then configure the MCP server with no env vars:
+
+```json
+{
+  "mcpServers": {
+    "argo": { "command": "npx", "args": ["-y", "argo-mcp"] }
+  }
+}
+```
+
+Other auth commands:
+
+```bash
+npx -y argo-mcp auth status   # show whether you are signed in
+npx -y argo-mcp auth logout   # forget locally stored tokens
+```
+
+> Local stdio mode does not use OAuth Dynamic Client Registration. DCR is only used by the hosted HTTP server at `https://mcp.argo.games`.
+
+### Advanced — environment variables
+
+For CI, Docker, or anyone who prefers explicit env config, you can skip `auth login` and pass tokens directly. `OAUTH_TOKEN` always wins over the local token store.
+
+```json
+{
+  "mcpServers": {
+    "argo": {
+      "command": "npx",
+      "args": ["-y", "argo-mcp"],
+      "env": {
+        "OAUTH_TOKEN": "<your-access-token>",
+        "REFRESH_TOKEN": "<your-refresh-token>"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Build from source (contributors)
 
 ```bash
 git clone https://github.com/Argo-RPG-Platform/MCP.git argo-mcp
@@ -229,9 +297,10 @@ To disconnect the AI assistant from a campaign, revoke the grant from the campai
 
 | Variable | Required | Description |
 |---|---|---|
-| `OAUTH_TOKEN` | Yes | Hydra access token from the consent flow |
+| `OAUTH_TOKEN` | If not signed in via `auth login` | Hydra access token from the consent flow |
 | `REFRESH_TOKEN` | Recommended | Hydra refresh token; enables automatic renewal |
 | `ARGO_API_BASE` | No | Override the API base URL (default: `https://api.argo.games`) |
+| `ARGO_MCP_TOKEN_PATH` | No | Override the local token file path used by `auth login` |
 
 ---
 
