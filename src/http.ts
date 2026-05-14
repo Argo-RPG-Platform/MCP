@@ -25,6 +25,14 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
 import { isJwtValidationEnabled, JwtValidationError, validateBearer } from "./jwt.js";
+import {
+  buildLlmsTxt,
+  buildManifest,
+  buildRobotsTxt,
+  buildSitemapXml,
+  buildToolDigest,
+  type ToolDigestEntry,
+} from "./discovery.js";
 
 interface SessionTokens {
   token: string;
@@ -676,6 +684,49 @@ export async function startHttpServer(): Promise<void> {
         },
       ],
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Public discovery surfaces (MCP directories, LLM crawlers, search engines)
+  // ---------------------------------------------------------------------------
+
+  const mcpBase = process.env.MCP_BASE_URL ?? "https://mcp.argo.games";
+  const oauthBase = process.env.ARGO_OAUTH_BASE ?? "https://oauth.argo.games";
+
+  // Build the tool digest once at startup. If it fails (e.g. transient SDK
+  // import issue) we still want the server to come up, so we cache an empty
+  // list and log — the manifest endpoint will report an empty tools array
+  // rather than 500.
+  let toolDigest: ToolDigestEntry[] = [];
+  try {
+    toolDigest = await buildToolDigest();
+  } catch (err) {
+    console.error("Failed to build discovery tool digest:", err);
+  }
+
+  const manifestHandler: express.RequestHandler = (_req, res) => {
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.json(buildManifest({ mcpBase, oauthBase, tools: toolDigest }));
+  };
+  app.get("/.well-known/argo-mcp.json", manifestHandler);
+  app.get("/mcp-manifest.json", manifestHandler);
+
+  app.get("/llms.txt", (_req, res) => {
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.type("text/plain").send(buildLlmsTxt({ mcpBase, oauthBase }));
+  });
+
+  app.get("/sitemap.xml", (_req, res) => {
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.type("application/xml").send(buildSitemapXml({ mcpBase }));
+  });
+
+  app.get("/robots.txt", (_req, res) => {
+    res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
+    res.type("text/plain").send(buildRobotsTxt({ mcpBase }));
   });
 
   app.get("/health", (_req, res) => {
