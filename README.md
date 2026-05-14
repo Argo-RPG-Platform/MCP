@@ -2,7 +2,22 @@
 
 Connects AI assistants to your Argo campaigns via the [Model Context Protocol](https://modelcontextprotocol.io). Once configured, your AI assistant can read and write campaign lore, look up character details, and interact with Argo data directly from the chat interface.
 
-Supported clients: Claude Code, Claude Desktop, OpenAI Codex, and any MCP-compatible host.
+Supported clients: Claude Code, Claude Desktop, OpenAI Codex, VS Code (1.103+), and any MCP-compatible host.
+
+## One-click install
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Argo_MCP-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode:mcp/install?name=argo&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fmcp.argo.games%2Fmcp%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Argo_MCP-24bfa5?style=for-the-badge&logo=visualstudiocode&logoColor=white)](vscode-insiders:mcp/install?name=argo&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fmcp.argo.games%2Fmcp%22%7D)
+
+Clicking either button hands a `vscode:mcp/install` URL to your editor with this config:
+
+```json
+{ "type": "http", "url": "https://mcp.argo.games/mcp" }
+```
+
+VS Code stores the entry in your user-level `mcp.json`, then negotiates OAuth on first connect via Dynamic Client Registration against the Argo authorization server. No tokens are embedded in the URL — VS Code stores the resulting access and refresh tokens in your OS keychain.
+
+The same install button is rendered on the Argo install page at `https://app.argo.games/docs/mcp/install`.
 
 ---
 
@@ -108,6 +123,23 @@ Treat both tokens like passwords. Revoke them at any time from the campaign's in
 ---
 
 ## Configuration
+
+### VS Code (one-click, recommended)
+
+Use the install buttons at the top of this README, or paste the following into a `.vscode/mcp.json` (per-workspace) or your user-level MCP config:
+
+```json
+{
+  "servers": {
+    "argo": {
+      "type": "http",
+      "url": "https://mcp.argo.games/mcp"
+    }
+  }
+}
+```
+
+VS Code handles OAuth automatically via Dynamic Client Registration on first connect. There is no need to set `OAUTH_TOKEN` or `REFRESH_TOKEN` — VS Code stores tokens in the OS keychain.
 
 ### Claude Code
 
@@ -297,8 +329,8 @@ To disconnect the AI assistant from a campaign, revoke the grant from the campai
 
 | Variable | Required | Description |
 |---|---|---|
-| `OAUTH_TOKEN` | If not signed in via `auth login` | Hydra access token from the consent flow |
-| `REFRESH_TOKEN` | Recommended | Hydra refresh token; enables automatic renewal |
+| `OAUTH_TOKEN` | If not signed in via `auth login` | OAuth2 access token from the consent flow |
+| `REFRESH_TOKEN` | Recommended | OAuth2 refresh token; enables automatic renewal |
 | `ARGO_API_BASE` | No | Override the API base URL (default: `https://api.argo.games`) |
 | `ARGO_MCP_TOKEN_PATH` | No | Override the local token file path used by `auth login` |
 
