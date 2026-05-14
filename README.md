@@ -113,6 +113,10 @@ Add the server to your Codex MCP configuration:
 }
 ```
 
+### ChatGPT App Submission
+
+For the hosted ChatGPT app surface, this repo exposes OAuth discovery, dynamic client registration, and domain verification endpoints on the MCP domain. The submission checklist and required env vars are in [CHATGPT_APP_SUBMISSION.md](./CHATGPT_APP_SUBMISSION.md).
+
 ### Using a `.env` file (local dev)
 
 Create a `.env` file in the `argo-mcp` directory:

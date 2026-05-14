@@ -1,0 +1,836 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "Argo",
+    "subtitle": "Manage Argo campaigns",
+    "description": "Argo helps players and game masters manage campaign data, lore entries, sessions, guild membership, friend requests, invites, and community forum activity from ChatGPT using the user's OAuth-authorized Argo account.",
+    "category": "ENTERTAINMENT"
+  },
+  "tools": {
+    "accept_friend_request": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Accepts a pending friend request and updates friendship state in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "add_campaign_to_guild": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Links a campaign to a guild in Argo, changing guild state.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "add_co_gm": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Adds a user as a co-GM on an Argo campaign, changing campaign permissions.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "add_guild_calendar_event": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a new shared guild calendar event in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "cancel_friend_request": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes Argo state by removing or rejecting an existing record instead of only retrieving data.",
+        "open_world_justification": "Only changes private Argo account or campaign state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Cancels a previously sent friend request so it is no longer pending."
+      }
+    },
+    "create_archive_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_campaign": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a new Argo campaign for the authenticated user instead of only returning existing campaign data.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_custom_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_journal_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_location_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_lore_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_mnemon_relationship": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a stored relationship between two mnemon entries in campaign data.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_npc_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_player_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_quest_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_session": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a scheduled campaign session record in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "create_session_summary_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "delete_mnemon_relationship": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes Argo state by removing or rejecting an existing record instead of only retrieving data.",
+        "open_world_justification": "Only changes private Argo account or campaign state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Deletes the selected relationship between mnemon entries from campaign data."
+      }
+    },
+    "describe_mnemon_types": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only returns the server's built-in mnemon type catalog and edit rules without changing campaign data.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_create_topic": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Creates a new forum topic in Argo's community system rather than only reading forum data.",
+        "open_world_justification": "Publishes a new post on community.argo.games where other community members can see it.",
+        "destructive_justification": "Creates content but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "forum_get_latest_topics": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_get_notifications": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_get_user_posts": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_list_categories": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_list_topics": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_read_topic": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "forum_reply": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Posts a reply to an existing forum topic instead of only retrieving thread data.",
+        "open_world_justification": "Adds visible content to community.argo.games for other users to read.",
+        "destructive_justification": "Adds content but does not delete records, revoke access, or perform an irreversible action."
+      }
+    },
+    "forum_search": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "get_campaign": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "get_guild": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "get_mnemon": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "get_session": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "invite_guild_member": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a guild invitation for the selected user in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "invite_user_by_email": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Sends invitation emails through Argo on the user's behalf instead of only returning data.",
+        "open_world_justification": "Delivers messages to external email addresses outside the private MCP session.",
+        "destructive_justification": "Sending an email invite is irreversible once the message has been handed off for delivery."
+      }
+    },
+    "list_campaigns": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_co_gms": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_friends": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_guild_members": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_guilds": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_mnemon_relationships": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_mnemons": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_received_friend_requests": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_sent_friend_requests": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "list_sessions": {
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
+      }
+    },
+    "reject_friend_request": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes Argo state by removing or rejecting an existing record instead of only retrieving data.",
+        "open_world_justification": "Only changes private Argo account or campaign state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Rejects a pending friend request so that request cannot remain outstanding."
+      }
+    },
+    "remove_co_gm": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes Argo state by removing or rejecting an existing record instead of only retrieving data.",
+        "open_world_justification": "Only changes private Argo account or campaign state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Removes a user's co-GM access from the campaign, which changes campaign administration immediately."
+      }
+    },
+    "remove_guild_member": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes Argo state by removing or rejecting an existing record instead of only retrieving data.",
+        "open_world_justification": "Only changes private Argo account or campaign state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Removes the selected member from the guild, which changes membership immediately."
+      }
+    },
+    "send_friend_request": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a pending friend request in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "set_guild_member_role": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes the stored role of a guild member in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_archive_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_campaign": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates campaign metadata in Argo rather than only retrieving campaign details.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_custom_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_journal_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_location_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_lore_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_mnemons_content": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Edits stored mnemon content blocks in campaign memory entries instead of only reading them.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_npc_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_player_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_quest_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_session": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Changes an existing campaign session's schedule or text in Argo.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_session_summary_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "List campaigns before choosing one to inspect.",
+      "user_prompt": "Show me the Argo campaigns I can access and which ones are read-only versus read-write.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_campaigns",
+      "expected_output": "Returns the campaigns available through the current OAuth grant with enough detail to choose one for follow-up actions.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Inspect full campaign details for a selected campaign.",
+      "user_prompt": "Open my Black Harbor campaign and show me its description, rules system, and co-GMs.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_campaigns, get_campaign",
+      "expected_output": "Finds the requested campaign and returns its campaign metadata and assistant GM details.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Search campaign lore before editing it.",
+      "user_prompt": "Find all NPC mnemons in my Black Harbor campaign with Raven in the title.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_campaigns, list_mnemons",
+      "expected_output": "Returns matching mnemon entries so the user can choose the right record to inspect or edit.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Update campaign lore content blocks.",
+      "user_prompt": "In my Black Harbor campaign, append a new paragraph to the Captain Nyra mnemon saying she now trusts the party after the bridge ambush.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_campaigns, list_mnemons, get_mnemon, update_mnemons_content",
+      "expected_output": "Finds the requested mnemon, reads its current blocks, and appends the new paragraph to the stored entry.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Schedule a new campaign session.",
+      "user_prompt": "Schedule a Black Harbor session for June 21, 2026 at 7 PM called Siege of the North Gate.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_campaigns, create_session",
+      "expected_output": "Creates a new session for the selected campaign and confirms the scheduled title and start time.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Manage guild membership and events.",
+      "user_prompt": "Invite user 4f1c2f7a to my Ravenwatch guild and add a guild calendar event for Session Zero next Friday at 18:00.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_guilds, invite_guild_member, add_guild_calendar_event",
+      "expected_output": "Identifies the selected guild, creates the invitation, and adds the requested guild calendar event.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Send an outbound Argo email invite.",
+      "user_prompt": "Invite alex@example.com and sam@example.com to join Argo.",
+      "file_attachment_urls": null,
+      "tools_triggered": "invite_user_by_email",
+      "expected_output": "Sends invitation emails and reports per-address invite results.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Search the community forum before posting.",
+      "user_prompt": "Search the Argo forum for posts about guild calendars, and if there is nothing similar, create a feature request asking for recurring guild events.",
+      "file_attachment_urls": null,
+      "tools_triggered": "forum_search, forum_list_categories, forum_create_topic",
+      "expected_output": "Searches existing forum content first, then creates a new topic in an appropriate category only if needed.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not trigger for unrelated general knowledge questions.",
+      "user_prompt": "Who wrote The Hobbit?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because the request is unrelated to Argo account, campaign, guild, invite, or forum workflows.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for work outside Argo systems.",
+      "user_prompt": "Send an email from my Gmail account to my boss.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because the request is for a different external service and not Argo invitations.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for device or local file tasks.",
+      "user_prompt": "Rename the PDF on my desktop to session-notes.pdf.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because the request is a local filesystem action outside the app's supported workflows.",
+      "expected_output_url": null
+    }
+  ]
+}
