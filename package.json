@@ -2,6 +2,7 @@
   "name": "argo-mcp",
   "version": "1.0.0",
   "description": "MCP server for Argo VTT — connects AI assistants to campaign data via OAuth2",
+  "mcpName": "io.github.argo-rpg-platform/argo-mcp",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -9,6 +10,7 @@
   },
   "files": [
     "dist",
+    "LICENSE",
     "README.md"
   ],
   "scripts": {
@@ -17,6 +19,27 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Argo-RPG-Platform/MCP.git"
+  },
+  "homepage": "https://github.com/Argo-RPG-Platform/MCP#readme",
+  "bugs": {
+    "url": "https://github.com/Argo-RPG-Platform/MCP/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "argo",
+    "vtt",
+    "ttrpg",
+    "oauth"
+  ],
+  "author": "Argo RPG Platform",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.argo-rpg-platform/argo-mcp",
+  "description": "MCP server for Argo VTT — connects AI assistants to campaign data via OAuth2",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/Argo-RPG-Platform/MCP",
+    "source": "github"
+  },
+  "websiteUrl": "https://app.argo.games/docs/mcp",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "argo-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OAUTH_TOKEN",
+          "description": "Argo OAuth2 access token from the consent flow at https://app.argo.games/oauth2/mcp-connect",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "REFRESH_TOKEN",
+          "description": "Argo OAuth2 refresh token. Enables automatic renewal of the access token when it expires (~1 hour).",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "ARGO_API_BASE",
+          "description": "Override the Argo WebAPI base URL. Defaults to https://api.argo.games.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.argo.games/mcp"
+    }
+  ]
+}
