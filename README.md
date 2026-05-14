@@ -138,15 +138,72 @@ npm start         # compiled dist/
 
 ## Available tools
 
-| Tool | Scope required | Description |
-|---|---|---|
-| `get_campaign` | `campaign.read` | Fetch campaign name, description, rule system, and metadata |
-| `list_mnemons` | `campaign.read` | List all lore/memory entries for a campaign |
-| `get_mnemon` | `campaign.read` | Get the full content of a specific lore entry |
-| `create_mnemon` | `campaign.write` | Create a new lore entry (GM write grant required) |
-| `update_mnemon` | `campaign.write` | Update the title or content of a lore entry (GM write grant required) |
+This server exposes tools across campaigns, mnemons, sessions, guilds, friends, invites, and the Argo community forum.
 
-All tools accept a `campaignId` parameter. You can find a campaign's ID from the Argo campaign URL or by asking the GM.
+### Campaigns
+
+- `list_campaigns` (`campaign.read`) lists accessible campaigns and their access level
+- `get_campaign` (`campaign.read`) retrieves campaign details
+- `create_campaign` (`campaign.create`) creates a new campaign
+- `update_campaign` (`campaign.write`) updates campaign name or description
+- `list_co_gms` (`campaign.read`) lists assistant GMs
+- `add_co_gm` (`campaign.write`) adds an assistant GM
+- `remove_co_gm` (`campaign.write`) removes an assistant GM
+
+### Mnemons
+
+- `describe_mnemon_types` lists supported mnemon types, relationship labels, and content-block rules
+- `list_mnemons` (`campaign.read`) lists mnemon entries for a campaign
+- `get_mnemon` (`campaign.read`) retrieves a mnemon entry in full
+- `list_mnemon_relationships` (`campaign.read`) lists linked entries and relationship edges
+- `create_*_mnemons` (`campaign.write`) creates typed mnemon entries for NPC, Location, Quest, Lore, Archive, Journal, SessionSummary, Player, and Custom entries
+- `update_*_mnemons` (`campaign.write`) updates typed/meta fields for those mnemon entry types
+- `update_mnemons_content` (`campaign.write`) edits mnemon content blocks
+- `create_mnemon_relationship` (`campaign.write`) creates a relationship between entries
+- `delete_mnemon_relationship` (`campaign.write`) deletes a relationship by ID
+
+### Sessions
+
+- `create_session` (`campaign.write`) schedules a campaign session
+- `list_sessions` (`campaign.read`) lists sessions for a campaign and month
+- `get_session` (`campaign.read`) retrieves a single session
+- `update_session` (`campaign.write`) updates a session's schedule or text
+
+### Guilds
+
+- `list_guilds` (`guild.read`) lists guilds the current user belongs to
+- `get_guild` (`guild.read`) retrieves guild details
+- `list_guild_members` (`guild.read`) lists guild members
+- `add_campaign_to_guild` (`guild.write`) links a campaign to a guild
+- `invite_guild_member` (`guild.admin`) invites a guild member
+- `remove_guild_member` (`guild.admin`) removes a guild member
+- `set_guild_member_role` (`guild.admin`) changes a guild member's role
+- `add_guild_calendar_event` (`guild.admin`) adds a guild calendar event
+
+### Friends and invites
+
+- `list_friends` (`friends.read`) lists accepted friends
+- `list_sent_friend_requests` (`friends.read`) lists outgoing pending requests
+- `list_received_friend_requests` (`friends.read`) lists incoming pending requests
+- `send_friend_request` (`friends.write`) sends a friend request
+- `accept_friend_request` (`friends.write`) accepts a request
+- `reject_friend_request` (`friends.write`) rejects a request
+- `cancel_friend_request` (`friends.write`) cancels a sent request
+- `invite_user_by_email` (`invite.write`) sends Argo invitation emails
+
+### Forum
+
+- `forum_list_categories` (`forum.read`) lists forum categories
+- `forum_list_topics` (`forum.read`) lists topics in a category
+- `forum_get_latest_topics` (`forum.read`) lists recent forum activity
+- `forum_read_topic` (`forum.read`) reads a topic thread
+- `forum_search` (`forum.read`) searches forum content
+- `forum_get_user_posts` (`forum.read`) lists the current user's topics
+- `forum_get_notifications` (`forum.read`) lists the current user's notifications
+- `forum_create_topic` (`forum.write`) creates a new topic on `community.argo.games`
+- `forum_reply` (`forum.write`) replies to an existing topic on `community.argo.games`
+
+Many campaign-scoped tools accept `campaignId`. You can find a campaign's ID from the Argo campaign URL or by asking the GM.
 
 ---
 
