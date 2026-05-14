@@ -9,33 +9,33 @@ import { argoGet, argoPatch, argoPost } from "../client.js";
 export interface CampaignSession {
   id: string;
   campaignId: string;
-  guildId?: string;
+  guildId?: string | null;
   title: string;
-  description?: string;
+  description?: string | null;
   startAt: string;
-  endAt?: string;
-  createdByUserId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  invitedUserIds?: string[];
-  invitedPartyIds?: string[];
-  attendanceReplies?: Record<string, unknown>;
+  endAt?: string | null;
+  createdByUserId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  invitedUserIds?: string[] | null;
+  invitedPartyIds?: string[] | null;
+  attendanceReplies?: Record<string, unknown> | null;
 }
 
 export const campaignSessionOutputSchema = z.object({
   id: z.string(),
   campaignId: z.string(),
-  guildId: z.string().optional(),
+  guildId: z.string().nullish(),
   title: z.string(),
-  description: z.string().optional(),
+  description: z.string().nullish(),
   startAt: z.string(),
-  endAt: z.string().optional(),
-  createdByUserId: z.string().optional(),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
-  invitedUserIds: z.array(z.string()).optional(),
-  invitedPartyIds: z.array(z.string()).optional(),
-  attendanceReplies: z.record(z.unknown()).optional(),
+  endAt: z.string().nullish(),
+  createdByUserId: z.string().nullish(),
+  createdAt: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+  invitedUserIds: z.array(z.string()).nullish(),
+  invitedPartyIds: z.array(z.string()).nullish(),
+  attendanceReplies: z.record(z.unknown()).nullish(),
 });
 
 // ---------------------------------------------------------------------------

@@ -9,8 +9,8 @@ import { argoGet, argoPost } from "../client.js";
 
 export interface UserDetail {
   id: string;
-  name?: string;
-  email?: string;
+  name?: string | null;
+  email?: string | null;
 }
 
 export interface FriendRequestRecord {
@@ -18,14 +18,14 @@ export interface FriendRequestRecord {
   senderId: string;
   receiverId: string;
   status: string;
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 export const userDetailOutputSchema = z.object({
   id: z.string(),
-  name: z.string().optional(),
-  email: z.string().optional(),
+  name: z.string().nullish(),
+  email: z.string().nullish(),
 });
 
 export const friendRequestRecordOutputSchema = z.object({
@@ -33,8 +33,8 @@ export const friendRequestRecordOutputSchema = z.object({
   senderId: z.string(),
   receiverId: z.string(),
   status: z.string(),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
+  createdAt: z.string().nullish(),
+  updatedAt: z.string().nullish(),
 });
 
 const targetSchema = z.object({
