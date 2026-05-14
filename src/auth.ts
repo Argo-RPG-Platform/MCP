@@ -4,8 +4,9 @@
  * Two modes:
  *
  *  stdio  — one user, one token for the lifetime of the process. The token is
- *            loaded from OAUTH_TOKEN / REFRESH_TOKEN env vars at startup via
- *            loadToken(). getToken() reads the global.
+ *            resolved at startup via loadToken() from (1) OAUTH_TOKEN env or
+ *            (2) the local token store written by `argo-mcp auth login`.
+ *            getToken() reads the global.
  *
  *  HTTP   — many concurrent users, each request carries its own token in the
  *            Authorization header. runWithToken() stores it in AsyncLocalStorage
@@ -15,6 +16,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { loadStoredTokens } from "./tokenStore.js";
 
 interface TokenCtx {
   token: string;
@@ -27,20 +29,59 @@ const _httpCtx = new AsyncLocalStorage<TokenCtx>();
 let _token: string | null = null;
 let _refreshToken: string | null = null;
 
+export const AUTH_REQUIRED_MESSAGE =
+  "Argo MCP is not signed in.\n" +
+  "\n" +
+  "For local MCP clients:\n" +
+  "  Run this once in a terminal:\n" +
+  "    npx -y argo-mcp auth login\n" +
+  "  Then restart your MCP client.\n" +
+  "\n" +
+  "For ChatGPT:\n" +
+  "  Do not use the local npx package.\n" +
+  "  Add the remote MCP endpoint instead:\n" +
+  "    https://mcp.argo.games/mcp\n" +
+  "\n" +
+  "Advanced:\n" +
+  "  Set OAUTH_TOKEN (and optional REFRESH_TOKEN) environment variables.";
+
+export class AuthRequiredError extends Error {
+  constructor(message: string = AUTH_REQUIRED_MESSAGE) {
+    super(message);
+    this.name = "AuthRequiredError";
+  }
+}
+
 /**
- * Load tokens from environment variables (stdio mode only).
- * OAUTH_TOKEN is required; REFRESH_TOKEN is optional.
+ * Load tokens for stdio mode. Resolution order:
+ *   1. OAUTH_TOKEN env var (+ optional REFRESH_TOKEN)
+ *   2. Locally stored tokens from `argo-mcp auth login`
+ *   3. Throw AuthRequiredError with onboarding instructions
  */
 export function loadToken(): void {
-  const token = process.env.OAUTH_TOKEN;
-  if (!token) {
-    throw new Error(
-      "OAUTH_TOKEN environment variable is not set. " +
-        "Obtain a token via the Argo OAuth2 consent flow and set it before starting."
-    );
+  const envToken = process.env.OAUTH_TOKEN;
+  if (envToken) {
+    _token = envToken;
+    _refreshToken = process.env.REFRESH_TOKEN ?? null;
+    return;
   }
-  _token = token;
-  _refreshToken = process.env.REFRESH_TOKEN ?? null;
+
+  const stored = loadStoredTokens();
+  if (stored) {
+    _token = stored.access;
+    _refreshToken = stored.refresh;
+    return;
+  }
+
+  throw new AuthRequiredError();
+}
+
+/**
+ * Test/internal helper — reset the stdio-mode globals.
+ */
+export function _resetTokenStateForTests(): void {
+  _token = null;
+  _refreshToken = null;
 }
 
 /**
@@ -88,4 +129,6 @@ export function setToken(newAccessToken: string, newRefreshToken?: string): void
   }
   _token = newAccessToken;
   if (newRefreshToken) _refreshToken = newRefreshToken;
+  // TODO: persist refreshed tokens to disk via saveStoredTokens() when in stdio
+  // mode and the original token came from the local token store.
 }
