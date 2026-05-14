@@ -17,6 +17,16 @@ export interface SendInvitesResponse {
   results: InviteResult[];
 }
 
+export const inviteResultOutputSchema = z.object({
+  email: z.string(),
+  status: z.string(),
+  message: z.string().optional(),
+});
+
+export const sendInvitesResponseOutputSchema = z.object({
+  results: z.array(inviteResultOutputSchema),
+});
+
 export const inviteUserByEmailInputSchema = z.object({
   emails: z
     .array(z.string().email())

@@ -22,6 +22,22 @@ export interface CampaignSession {
   attendanceReplies?: Record<string, unknown>;
 }
 
+export const campaignSessionOutputSchema = z.object({
+  id: z.string(),
+  campaignId: z.string(),
+  guildId: z.string().optional(),
+  title: z.string(),
+  description: z.string().optional(),
+  startAt: z.string(),
+  endAt: z.string().optional(),
+  createdByUserId: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  invitedUserIds: z.array(z.string()).optional(),
+  invitedPartyIds: z.array(z.string()).optional(),
+  attendanceReplies: z.record(z.unknown()).optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------

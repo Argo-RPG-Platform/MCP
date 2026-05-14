@@ -25,6 +25,25 @@ export interface CampaignSummary extends Campaign {
   accessLevel?: string;
 }
 
+export const campaignOutputSchema = z.object({
+  id: z.string(),
+  gameMasterId: z.string(),
+  campaignName: z.string(),
+  campaignDescription: z.string().optional(),
+  ruleSystem: z.string().optional(),
+  gameSystemSlug: z.string().optional(),
+  coGameMasterIds: z.array(z.string()).optional(),
+});
+
+export const campaignSummaryOutputSchema = campaignOutputSchema.extend({
+  accessLevel: z.string().optional(),
+});
+
+export const coGmOutputSchema = z.object({
+  userId: z.string(),
+  displayName: z.string().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------

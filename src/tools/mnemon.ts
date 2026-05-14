@@ -76,6 +76,112 @@ export interface RelationshipsResponse {
   linked: LinkedEntry[];
 }
 
+export const mnemonBlockOutputSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  text: z.string().optional(),
+  assetId: z.string().optional(),
+  mimeType: z.string().optional(),
+  caption: z.string().optional(),
+  language: z.string().optional(),
+  checked: z.boolean().optional(),
+});
+
+export const mnemonSummaryOutputSchema = z.object({
+  entryId: z.string(),
+  title: z.string(),
+  type: z.string(),
+});
+
+export const mnemonEntryOutputSchema = z.object({
+  entryId: z.string(),
+  title: z.string(),
+  type: z.string(),
+  blocks: z.array(mnemonBlockOutputSchema),
+  typeProperties: z.record(z.unknown()).optional(),
+});
+
+export const mnemonItemResultOutputSchema = z.object({
+  index: z.number(),
+  success: z.boolean(),
+  entryId: z.string().optional(),
+  title: z.string().optional(),
+  failedOpIndex: z.number().optional(),
+  error: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+export const mnemonBulkResponseOutputSchema = z.object({
+  results: z.array(mnemonItemResultOutputSchema),
+});
+
+export const relationshipOutputSchema = z.object({
+  relationshipId: z.string(),
+  sourceId: z.string(),
+  targetId: z.string(),
+  label: z.string(),
+  color: z.string().optional(),
+  direction: z.string().optional(),
+});
+
+export const linkedEntryOutputSchema = z.object({
+  entryId: z.string(),
+  title: z.string(),
+  type: z.string(),
+  relationshipTypes: z.array(z.string()),
+});
+
+export const relationshipsResponseOutputSchema = z.object({
+  outgoing: z.array(relationshipOutputSchema),
+  incoming: z.array(relationshipOutputSchema),
+  linked: z.array(linkedEntryOutputSchema),
+});
+
+export const describeMnemonTypesOutputSchema = z.object({
+  types: z.array(z.object({
+    type: z.string(),
+    tool: z.string(),
+    description: z.string(),
+  })),
+  htmlFormat: z.object({
+    summary: z.string(),
+    allowedInlineTags: z.array(z.string()),
+    doNot: z.array(z.string()),
+    images: z.object({
+      supportedSrc: z.array(z.string()),
+      rewrite: z.string(),
+      caps: z.string(),
+      failureMode: z.string(),
+    }),
+  }),
+  blockOps: z.object({
+    tool: z.string(),
+    ops: z.array(z.object({
+      op: z.string(),
+      required: z.array(z.string()),
+      optional: z.array(z.string()),
+      description: z.string(),
+    })),
+    blockTypes: z.array(z.string()),
+    atomicity: z.string(),
+    addressing: z.string(),
+  }),
+  commonFields: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    values: z.array(z.string()).optional(),
+    description: z.string(),
+  })),
+  relationshipLabels: z.array(z.string()),
+  relationships: z.array(z.object({
+    source: z.string(),
+    label: z.string(),
+    target: z.string(),
+    description: z.string(),
+  })),
+  idReferences: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // describe_mnemon_types — discoverability for the LLM
 // ---------------------------------------------------------------------------
