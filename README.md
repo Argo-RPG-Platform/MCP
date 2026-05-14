@@ -232,3 +232,9 @@ To disconnect the AI assistant from a campaign, revoke the grant from the campai
 | `OAUTH_TOKEN` | Yes | Hydra access token from the consent flow |
 | `REFRESH_TOKEN` | Recommended | Hydra refresh token; enables automatic renewal |
 | `ARGO_API_BASE` | No | Override the API base URL (default: `https://api.argo.games`) |
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
