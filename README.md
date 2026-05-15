@@ -17,6 +17,13 @@ Clicking either button hands a `vscode:mcp/install` URL to your editor with this
 
 VS Code stores the entry in your user-level `mcp.json`, then negotiates OAuth on first connect via Dynamic Client Registration against the Argo authorization server. No tokens are embedded in the URL — VS Code stores the resulting access and refresh tokens in your OS keychain.
 
+**Linux / Flatpak / Snap note:** If clicking the button doesn't open VS Code, the `vscode:` URL handler isn't registered. This is common on:
+
+- **Flatpak / Snap VS Code** — the sandbox isolates the install from the host, so the host browser can't find the protocol handler.
+- **Tarball / manual installs** — no postinst hook runs `update-desktop-database`. Either run `xdg-mime default code.desktop x-scheme-handler/vscode` once, or use the manual fallback below.
+
+Manual fallback: copy the JSON from the [VS Code (one-click, recommended)](#vs-code-one-click-recommended) section below into your VS Code `mcp.json` config.
+
 The same install button is rendered on the Argo install page at `https://app.argo.games/docs/mcp/install`.
 
 ---
