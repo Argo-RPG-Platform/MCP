@@ -267,6 +267,19 @@ export function describeMnemonTypes(): object {
     relationshipLabels: RELATIONSHIP_LABELS,
     relationships: RELATIONSHIP_MATRIX,
     idReferences: "All entryId-shaped fields accept a hex entryId OR a mnemon's exact title — the MCP server resolves titles to hex IDs before calling the API. Title→id resolution fails (with candidate ids) when a title matches multiple mnemons.",
+    questBody: {
+      summary: "Quest payloads carry an ordered steps array and a rewards array. Both are optional on create/update; omitting them leaves the existing payload values untouched, and an empty array clears them.",
+      step: {
+        fields: ["stepId", "title", "description", "status", "targetNpcEntryIds", "targetLocationEntryIds", "notes"],
+        stepIdNotes: "Optional on input — the server generates a UUID when blank. Provide the same stepId later (or in a reward's linkedStepIds) to reference the step.",
+        statusValues: QUEST_STEP_STATUSES,
+        statusDefault: "Available (also used as fallback for unrecognized values).",
+      },
+      reward: {
+        fields: ["rewardType", "label", "amount", "itemId", "notes", "linkedStepIds"],
+        linkedStepIdsNotes: "Mix of local stepIds and subquest entry ids. Reward unlocks once any linked step/subquest completes.",
+      },
+    },
   };
 }
 
@@ -423,6 +436,43 @@ export async function createLocationMnemons(
 }
 
 // --- Quest ---
+const QUEST_STEP_STATUSES = [
+  "Hidden",
+  "Available",
+  "Active",
+  "Completed",
+  "Failed",
+  "TurnedIn",
+  "Abandoned",
+  "Expired",
+  "OnHold",
+] as const;
+
+const questStepInputSchema = z.object({
+  stepId: z
+    .string()
+    .optional()
+    .describe("Optional. Server generates a fresh UUID when blank. Provide an existing stepId to reuse linkedStepIds."),
+  title: z.string().describe("Short label for the step, e.g. 'Talk to the innkeeper'."),
+  description: z.string().optional(),
+  status: z
+    .enum(QUEST_STEP_STATUSES)
+    .optional()
+    .describe("Defaults to 'Available' when omitted. Unknown values are coerced server-side."),
+  targetNpcEntryIds: stringArray().describe("NPCs involved in this step (entryIds or titles)."),
+  targetLocationEntryIds: stringArray().describe("Locations involved in this step."),
+  notes: stringArray().describe("Free-text bullet notes for the step."),
+});
+
+const questRewardInputSchema = z.object({
+  rewardType: z.string().optional().describe("Bucket: Gold | Item | XP | Reputation | etc."),
+  label: z.string().optional().describe("Display label (e.g. '100 gp', 'Ancient map')."),
+  amount: z.number().int().optional().describe("Numeric amount for stack-like rewards."),
+  itemId: z.string().optional().describe("Optional reference to an item entry."),
+  notes: z.string().optional(),
+  linkedStepIds: stringArray().describe("stepIds and/or subquest entry ids whose completion unlocks this reward."),
+});
+
 const createQuestItemSchema = z.object({
   ...createCommon,
   questStatus: z.string().optional().describe("active | completed | failed."),
@@ -433,6 +483,8 @@ const createQuestItemSchema = z.object({
   subQuestEntryIds: stringArray(),
   relatedNpcEntryIds: stringArray(),
   relatedLocationEntryIds: stringArray(),
+  steps: z.array(questStepInputSchema).optional().describe("Ordered list of quest steps. Omit to leave empty."),
+  rewards: z.array(questRewardInputSchema).optional().describe("Rewards shown when the quest completes."),
 });
 
 export const createQuestMnemonsInputSchema = z.object({
@@ -452,12 +504,38 @@ export async function createQuestMnemons(
       subQuestEntryIds: await resolver.resolveArray(it.subQuestEntryIds, { type: "Quest", fieldLabel: "subQuestEntryIds" }),
       relatedNpcEntryIds: await resolver.resolveArray(it.relatedNpcEntryIds, { type: "NPC", fieldLabel: "relatedNpcEntryIds" }),
       relatedLocationEntryIds: await resolver.resolveArray(it.relatedLocationEntryIds, { type: "Location", fieldLabel: "relatedLocationEntryIds" }),
+      steps: await resolveQuestSteps(resolver, it.steps),
+      rewards: it.rewards,
     });
   }
   return argoPost<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/quest`,
     { items }
   );
+}
+
+type QuestStepInput = z.infer<typeof questStepInputSchema>;
+
+/**
+ * Resolves the per-step target lists (NPCs / Locations) through the title→id
+ * resolver, so callers can pass either entry ids or titles. {@code linkedStepIds}
+ * on rewards is left as-is — those are local-to-this-quest stepIds (server
+ * UUIDs) or subquest entry ids the caller already resolved upstream.
+ */
+async function resolveQuestSteps(
+  resolver: MnemonResolver,
+  steps: QuestStepInput[] | undefined,
+): Promise<QuestStepInput[] | undefined> {
+  if (!steps) return undefined;
+  const out: QuestStepInput[] = [];
+  for (const step of steps) {
+    out.push({
+      ...step,
+      targetNpcEntryIds: await resolver.resolveArray(step.targetNpcEntryIds, { type: "NPC", fieldLabel: "step.targetNpcEntryIds" }),
+      targetLocationEntryIds: await resolver.resolveArray(step.targetLocationEntryIds, { type: "Location", fieldLabel: "step.targetLocationEntryIds" }),
+    });
+  }
+  return out;
 }
 
 // --- Lore ---
@@ -720,6 +798,8 @@ const updateQuestItemSchema = z.object({
   subQuestEntryIds: stringArray(),
   relatedNpcEntryIds: stringArray(),
   relatedLocationEntryIds: stringArray(),
+  steps: z.array(questStepInputSchema).optional().describe("If present, replaces the entire steps list. Omit to leave steps untouched."),
+  rewards: z.array(questRewardInputSchema).optional().describe("If present, replaces the entire rewards list."),
 });
 
 export const updateQuestMnemonsInputSchema = z.object({
@@ -740,6 +820,8 @@ export async function updateQuestMnemons(
       subQuestEntryIds: await resolver.resolveArray(it.subQuestEntryIds, { type: "Quest", fieldLabel: "subQuestEntryIds" }),
       relatedNpcEntryIds: await resolver.resolveArray(it.relatedNpcEntryIds, { type: "NPC", fieldLabel: "relatedNpcEntryIds" }),
       relatedLocationEntryIds: await resolver.resolveArray(it.relatedLocationEntryIds, { type: "Location", fieldLabel: "relatedLocationEntryIds" }),
+      steps: await resolveQuestSteps(resolver, it.steps),
+      rewards: it.rewards,
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
