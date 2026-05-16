@@ -196,6 +196,9 @@ const RELATIONSHIP_LABELS = [
   "PARENT_OF",
   "CONTAINS",
   "LOCATED_IN",
+  "HAS_SUBQUEST",
+  "QUEST_RELATED_NPC",
+  "QUEST_RELATED_LOCATION",
 ] as const;
 
 const RELATIONSHIP_MATRIX: ReadonlyArray<{
@@ -213,6 +216,9 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Location", label: "PARENT_OF", target: "Location", description: "Hierarchical containment: source is the larger place." },
   { source: "Location", label: "CONTAINS", target: "NPC", description: "An NPC is physically present at this location." },
   { source: "NPC", label: "LOCATED_IN", target: "Location", description: "An NPC is currently at this place. Inverse of CONTAINS." },
+  { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Hierarchical (direction=parent). Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
+  { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
+  { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
 ];
 
 export function describeMnemonTypes(): object {
