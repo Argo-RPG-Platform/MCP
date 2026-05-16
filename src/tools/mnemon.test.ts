@@ -12,6 +12,7 @@ import {
   createNpcMnemons,
   createLocationMnemons,
   createQuestMnemons,
+  createQuestMnemonsInputSchema,
   createPlayerMnemons,
   describeMnemonTypes,
   listMnemons,
@@ -167,6 +168,73 @@ describe("createQuestMnemons", () => {
     });
     const body = argoPost.mock.calls[0][1] as { items: Array<{ issuerNpcEntryId: string }> };
     expect(body.items[0].issuerNpcEntryId).toBe(NPC_HEX);
+  });
+
+  it("passes steps and rewards through the POST body", async () => {
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Save the cat" }] });
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "Save the cat",
+          blocks: [{ type: "paragraph", content: "x" }],
+          steps: [
+            { stepId: "s1", title: "Find the cat", status: "Available" },
+            { title: "Bring it home" },
+          ],
+          rewards: [
+            { rewardType: "Gold", label: "50 gp", amount: 50, linkedStepIds: ["s1"] },
+          ],
+        },
+      ],
+    });
+    const body = argoPost.mock.calls[0][1] as {
+      items: Array<{
+        steps?: Array<{ stepId?: string; title: string; status?: string }>;
+        rewards?: Array<{ rewardType?: string; amount?: number; linkedStepIds?: string[] }>;
+      }>;
+    };
+    expect(body.items[0].steps).toHaveLength(2);
+    expect(body.items[0].steps?.[0]).toMatchObject({ stepId: "s1", title: "Find the cat", status: "Available" });
+    expect(body.items[0].rewards).toHaveLength(1);
+    expect(body.items[0].rewards?.[0]).toMatchObject({ rewardType: "Gold", amount: 50 });
+    expect(body.items[0].rewards?.[0].linkedStepIds).toEqual(["s1"]);
+  });
+
+  it("resolves title-form targetNpcEntryIds inside a step", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: NPC_HEX, title: "Mayor", type: "NPC" }]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Q" }] });
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "Q",
+          blocks: [{ type: "paragraph", content: "x" }],
+          steps: [
+            { title: "Talk to mayor", targetNpcEntryIds: ["Mayor"] },
+          ],
+        },
+      ],
+    });
+    const body = argoPost.mock.calls[0][1] as {
+      items: Array<{ steps?: Array<{ targetNpcEntryIds?: string[] }> }>;
+    };
+    expect(body.items[0].steps?.[0].targetNpcEntryIds).toEqual([NPC_HEX]);
+  });
+
+  it("rejects an invalid step status at the schema layer", () => {
+    expect(() =>
+      createQuestMnemonsInputSchema.parse({
+        campaignId: CAMPAIGN,
+        items: [
+          {
+            title: "Q",
+            blocks: [{ type: "paragraph", content: "x" }],
+            steps: [{ title: "x", status: "NotARealStatus" as unknown as "Available" }],
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });
 
