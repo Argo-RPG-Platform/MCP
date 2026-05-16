@@ -255,8 +255,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only retrieves forum topics and returns them without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games content but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -279,8 +279,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only retrieves the current user's forum topics and returns them without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games content but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -291,8 +291,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only retrieves forum category metadata and returns it without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games metadata but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -303,8 +303,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only retrieves forum topics for a category and returns them without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games content but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -315,8 +315,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only retrieves forum posts in a topic and returns them without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games content but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -339,8 +339,8 @@
         "openWorldHint": false
       },
       "justifications": {
-        "read_only_justification": "Only retrieves Argo data and returns it without creating, updating, or deleting records.",
-        "open_world_justification": "Operates on private Argo data only and does not publish to public internet state or third-party systems.",
+        "read_only_justification": "Only searches existing forum topics and posts and returns matches without creating, updating, or deleting records.",
+        "open_world_justification": "Reads community.argo.games content but does not publish or change public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or send irreversible messages or transactions."
       }
     },
@@ -767,6 +767,14 @@
       "expected_output_url": null
     },
     {
+      "description": "Explain supported mnemon types before creating entries.",
+      "user_prompt": "What mnemon types can I create in Argo, and which one should I use for a session recap versus a place entry?",
+      "file_attachment_urls": null,
+      "tools_triggered": "describe_mnemon_types",
+      "expected_output": "Returns the supported mnemon types and edit rules so the user can choose the correct entry type before creating content.",
+      "expected_output_url": null
+    },
+    {
       "description": "Update campaign lore content blocks.",
       "user_prompt": "In my Black Harbor campaign, append a new paragraph to the Captain Nyra mnemon saying she now trusts the party after the bridge ambush.",
       "file_attachment_urls": null,
@@ -791,11 +799,35 @@
       "expected_output_url": null
     },
     {
+      "description": "Review guild members before changing a role.",
+      "user_prompt": "Show the members of my Ravenwatch guild and promote Mira to Admin if she is still a regular member.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_guilds, list_guild_members, set_guild_member_role",
+      "expected_output": "Finds the selected guild, lists the current members, and updates the chosen member's role if the requested change is allowed.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Handle pending friend requests.",
+      "user_prompt": "Show me my pending received friend requests and accept the one from Rowan if it's still open.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_received_friend_requests, accept_friend_request",
+      "expected_output": "Lists pending inbound requests and accepts the matching request when it is present.",
+      "expected_output_url": null
+    },
+    {
       "description": "Send an outbound Argo email invite.",
       "user_prompt": "Invite alex@example.com and sam@example.com to join Argo.",
       "file_attachment_urls": null,
       "tools_triggered": "invite_user_by_email",
       "expected_output": "Sends invitation emails and reports per-address invite results.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Check community activity without posting.",
+      "user_prompt": "Show me the latest Argo forum topics and any forum notifications I need to catch up on.",
+      "file_attachment_urls": null,
+      "tools_triggered": "forum_get_latest_topics, forum_get_notifications",
+      "expected_output": "Returns recent community activity plus the current user's notifications without creating any new forum content.",
       "expected_output_url": null
     },
     {

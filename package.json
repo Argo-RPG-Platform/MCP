@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "argo-mcp": "./dist/index.js"
+    "argo-mcp": "dist/index.js"
   },
   "files": [
     "dist",
