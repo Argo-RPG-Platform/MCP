@@ -189,6 +189,9 @@ const DISCOVERY_CACHE_CONTROL = "public, max-age=3600";
 const IDLE_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
 const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 
+// Anthropic Connector requirement: tool handlers must complete within 5 min.
+const MCP_HANDLER_TIMEOUT_MS = 5 * 60 * 1000;
+
 // Token-bucket rate limit for /oauth/register. Each unauthenticated probe
 // creates a real Hydra client through WebAPI; bot scanning this endpoint is
 // both a billing problem and a data-hygiene problem.
@@ -383,13 +386,31 @@ export async function startHttpServer(): Promise<void> {
   }, SESSION_SWEEP_INTERVAL_MS);
   sweepTimer.unref();
 
+  // Per-request 300-second timeout. Anthropic Connector reviewers reject
+  // servers without an explicit handler-side timeout cap; Cloud Run's request
+  // timeout would mask this but isn't in this codebase.
+  const enforceMcpTimeout: express.RequestHandler = (req, res, next) => {
+    req.setTimeout(MCP_HANDLER_TIMEOUT_MS, () => {
+      if (res.headersSent) return;
+      res.status(504).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32001,
+          message: "Tool handler exceeded 300s timeout limit.",
+        },
+        id: null,
+      });
+    });
+    next();
+  };
+
   // Streamable HTTP routes. Mirrored at "/" because Claude Desktop posts to
   // the root when the connector URL has no path component.
-  app.post("/mcp", handleStreamPost);
-  app.get("/mcp", handleStreamGet);
+  app.post("/mcp", enforceMcpTimeout, handleStreamPost);
+  app.get("/mcp", enforceMcpTimeout, handleStreamGet);
   app.delete("/mcp", handleStreamDelete);
-  app.post("/", handleStreamPost);
-  app.get("/", handleStreamGet);
+  app.post("/", enforceMcpTimeout, handleStreamPost);
+  app.get("/", enforceMcpTimeout, handleStreamGet);
   app.delete("/", handleStreamDelete);
 
   // ---------------------------------------------------------------------------
