@@ -334,18 +334,20 @@ const guildRoleMutationOutputSchema = guildMemberMutationOutputSchema.extend({
   role: z.enum(["Owner", "Admin", "Member"]),
 });
 
-// Format list responses so the human-readable section never contains IDs.
+// Format list responses. IDs are included in the text payload so clients that
+// do not surface structuredContent (e.g. Claude.ai chat) can still see them;
+// the model is expected to use IDs for tool calls but not echo them to the user.
 
 function fmtCampaigns(campaigns: CampaignSummary[]): string {
   const lines = campaigns.map(
-    (c) => `• ${c.campaignName}${c.ruleSystem ? ` (${c.ruleSystem})` : ""} — ${c.accessLevel ?? "read"}`
+    (c) => `• ${c.campaignName}${c.ruleSystem ? ` (${c.ruleSystem})` : ""} — ${c.accessLevel ?? "read"}  [id: ${c.id}]`
   );
   return `${campaigns.length} campaign(s):\n${lines.join("\n")}`;
 }
 
 function fmtGuilds(guilds: GuildSummary[]): string {
   const lines = guilds.map(
-    (g) => `• ${g.name} — ${g.role} (${g.memberCount} member${g.memberCount === 1 ? "" : "s"}, ${g.campaignCount} campaign${g.campaignCount === 1 ? "" : "s"})`
+    (g) => `• ${g.name} — ${g.role} (${g.memberCount} member${g.memberCount === 1 ? "" : "s"}, ${g.campaignCount} campaign${g.campaignCount === 1 ? "" : "s"})  [id: ${g.guildId}]`
   );
   return `${guilds.length} guild(s):\n${lines.join("\n")}`;
 }
@@ -386,7 +388,7 @@ function fmtBulkResponse(resp: MnemonBulkResponse, verb: string): ToolResult {
 }
 
 function fmtMnemons(entries: MnemonSummary[]): string {
-  const lines = entries.map((e) => `• ${e.title} [${e.type}]`);
+  const lines = entries.map((e) => `• ${e.title} [${e.type}]  [id: ${e.entryId}]`);
   return `${entries.length} entry(ies):\n${lines.join("\n")}`;
 }
 
@@ -395,11 +397,14 @@ export function createServer(): McpServer {
     { name: "argo-mcp", version: "1.1.0" },
     {
       instructions:
-        "Display policy: Never show internal IDs (guildId, campaignId, entryId, " +
-        "relationshipId, userId, sessionId) in conversational responses. Use names, " +
-        "titles, and campaignName instead — IDs are for tool calls only. Obtain IDs " +
-        "from list/get results and use them silently in subsequent tool calls. " +
-        "Only reveal an ID if the user explicitly asks for it or needs to copy it. " +
+        "ID handling: every list_* tool includes an `[id: …]` suffix on each entry " +
+        "in its text response (and the same IDs in structuredContent.idMap). You MUST " +
+        "use those IDs verbatim when calling any tool that takes a guildId, campaignId, " +
+        "entryId, relationshipId, userId, or sessionId — do not ask the user for an ID " +
+        "you can resolve from a list_* call. " +
+        "Display policy: in your prose to the user, refer to resources by name/title " +
+        "(campaignName, guild name, mnemon title) rather than printing the raw ID. " +
+        "Only show an ID if the user explicitly asks for it. " +
         "Ambiguity: if two resources share the same name, distinguish by campaign, " +
         "type, date, or description — never by showing raw IDs.",
     }
@@ -466,8 +471,10 @@ export function createServer(): McpServer {
       description:
         "List all Argo campaigns the current grant token has access to, including the access level " +
         "(\"read\" or \"read+write\") for each. Call this first when the user has not provided a " +
-        "campaign ID — it returns all campaign IDs and names you can then use with other tools. " +
-        "In responses, refer to campaigns by campaignName — never expose the id field to the user.",
+        "campaign ID. Each entry includes both `campaignName` and `id` (shown inline as `[id: …]` " +
+        "and also in structuredContent.idMap). Use the `id` verbatim for any subsequent tool call " +
+        "that takes a `campaignId`. In prose to the user, refer to campaigns by `campaignName`; " +
+        "do not print the raw `id` unless asked.",
       inputSchema: listCampaignsInputSchema.shape,
       outputSchema: campaignListOutputSchema,
       annotations: READ_ONLY,
@@ -653,7 +660,9 @@ export function createServer(): McpServer {
         "List mnemon (lore/memory) entries for an Argo campaign. " +
         "Optional filters: `title` (case-insensitive substring on entry title only) and " +
         "`type` (e.g. NPC, Location, Quest). Returns all matching entries — pagination is automatic. " +
-        "In responses, refer to entries by title — never expose entryId to the user.",
+        "Each entry includes both `title` and `entryId` (shown inline as `[id: …]` and in " +
+        "structuredContent.idMap). Use the `entryId` verbatim for any tool that takes one; " +
+        "refer to entries by `title` in prose to the user.",
       inputSchema: listMnemonsInputSchema.shape,
       outputSchema: mnemonListOutputSchema,
       annotations: READ_ONLY,
@@ -983,7 +992,9 @@ export function createServer(): McpServer {
       description:
         "List the guilds the current user belongs to, with role (Owner/Admin/Member), " +
         "member count, and campaign count. Requires the guild.read scope. " +
-        "In responses, refer to guilds by name — never expose guildId to the user.",
+        "Each entry includes both `name` and `guildId` (shown inline as `[id: …]` and in " +
+        "structuredContent.idMap). Use the `guildId` verbatim for any tool that takes one; " +
+        "refer to guilds by `name` in prose to the user.",
       inputSchema: listGuildsInputSchema.shape,
       outputSchema: guildListOutputSchema,
       annotations: READ_ONLY,
