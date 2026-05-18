@@ -21,10 +21,25 @@ describe("discovery", () => {
     // Known read-only tools must be flagged as such.
     const listCampaigns = tools.find((t) => t.name === "list_campaigns")!;
     expect(listCampaigns.read_only).toBe(true);
+    expect(listCampaigns.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
 
     // Known write tools must NOT be flagged read_only.
     const createCampaign = tools.find((t) => t.name === "create_campaign")!;
     expect(createCampaign.read_only).toBe(false);
+    expect(createCampaign.annotations.readOnlyHint).toBe(false);
+
+    // Every tool must carry the annotations object Anthropic Connector
+    // reviewers grep for. Catching a regression here is the whole point —
+    // a missing annotation on a single new tool would block submission.
+    for (const t of tools) {
+      expect(t.annotations).toBeDefined();
+      expect(typeof t.annotations.readOnlyHint).toBe("boolean");
+      expect(typeof t.annotations.destructiveHint).toBe("boolean");
+    }
 
     // Sorted alphabetically for stable manifest output.
     expect([...names].sort()).toEqual(names);
@@ -37,7 +52,12 @@ describe("discovery", () => {
     const manifest = buildManifest({
       mcpBase: "https://mcp.argo.games",
       oauthBase: "https://oauth.argo.games",
-      tools: [{ name: "list_campaigns", description: "x", read_only: true }],
+      tools: [{
+        name: "list_campaigns",
+        description: "x",
+        read_only: true,
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      }],
     });
     expect(manifest).toMatchObject({
       name: "Argo MCP Server",
