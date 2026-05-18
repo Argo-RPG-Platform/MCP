@@ -231,9 +231,36 @@ function toUserMessage(err: unknown): string {
   return "An unexpected error occurred.";
 }
 
+// Anthropic Connector requirement: tool results must not exceed 25,000 tokens.
+// We approximate tokens as ceil(byteLength / 4) over the serialized payload —
+// generous enough that real model tokenisation will stay under the bar, cheap
+// enough to compute on every call. The cap is enforced centrally here so a new
+// tool can never forget it; the offending tools today are the *_list / *_search
+// surfaces that can fan out over a large guild archive.
+const RESULT_TOKEN_CAP = 25_000;
+const APPROX_CHARS_PER_TOKEN = 4;
+const RESULT_CHAR_CAP = RESULT_TOKEN_CAP * APPROX_CHARS_PER_TOKEN;
+
+function capToolResult(result: ToolResult): ToolResult {
+  const textLen = result.content.reduce((n, c) => n + c.text.length, 0);
+  const structLen = result.structuredContent
+    ? JSON.stringify(result.structuredContent).length
+    : 0;
+  if (textLen + structLen <= RESULT_CHAR_CAP) return result;
+
+  const hint =
+    "Result truncated: this tool returned more than 25,000 tokens, which exceeds the Anthropic " +
+    "Connector limit. Narrow your query — add filters, pass a smaller limit, or paginate.";
+  return {
+    content: [{ type: "text", text: hint }],
+    structuredContent: { truncated: true, reason: "result_exceeds_25k_tokens" },
+    isError: true,
+  };
+}
+
 async function runTool<T>(fn: () => Promise<T>, format: (result: T) => ToolResult): Promise<ToolResult> {
   try {
-    return format(await fn());
+    return capToolResult(format(await fn()));
   } catch (err) {
     return { content: [{ type: "text", text: toUserMessage(err) }], isError: true };
   }
