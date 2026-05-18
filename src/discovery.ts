@@ -24,6 +24,15 @@ export interface ToolDigestEntry {
   name: string;
   description: string;
   read_only: boolean;
+  // Raw MCP tool annotations. We surface readOnlyHint and destructiveHint
+  // verbatim so connector reviewers (Anthropic, OpenAI) who audit the public
+  // manifest see the exact field names they grep for, not just a collapsed
+  // boolean. openWorldHint is included for completeness.
+  annotations: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    openWorldHint: boolean;
+  };
 }
 
 const BASE_SCOPES = ["openid", "offline_access"];
@@ -46,11 +55,18 @@ export async function buildToolDigest(): Promise<ToolDigestEntry[]> {
   try {
     const { tools } = await client.listTools();
     return tools
-      .map((t) => ({
-        name: t.name,
-        description: (t.description ?? "").trim(),
-        read_only: t.annotations?.readOnlyHint === true,
-      }))
+      .map((t) => {
+        const a = t.annotations ?? {};
+        const readOnlyHint = a.readOnlyHint === true;
+        const destructiveHint = a.destructiveHint === true;
+        const openWorldHint = a.openWorldHint === true;
+        return {
+          name: t.name,
+          description: (t.description ?? "").trim(),
+          read_only: readOnlyHint,
+          annotations: { readOnlyHint, destructiveHint, openWorldHint },
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   } finally {
     await client.close();
