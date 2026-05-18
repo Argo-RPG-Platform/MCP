@@ -1,6 +1,6 @@
 {
   "name": "argo-mcp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "MCP server for Argo RPG Platform — connects AI assistants to campaign data via OAuth2",
   "mcpName": "io.github.Argo-RPG-Platform/argo-mcp",
   "type": "module",
