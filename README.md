@@ -343,6 +343,22 @@ To disconnect the AI assistant from a campaign, revoke the grant from the campai
 
 ---
 
+## Privacy Policy
+
+Full policy: **https://argo.games/policies/privacy-policy**
+
+What the Argo MCP server handles:
+
+- **Data collected.** OAuth access and refresh tokens issued by the Argo authorization server (`oauth.argo.games`); the campaign, mnemon, guild, forum, and friends payloads that pass through tool calls; standard HTTP metadata (IP, user agent) for rate limiting and abuse mitigation.
+- **Usage.** Tool calls are proxied to the Argo WebAPI (`api.argo.games`) on behalf of the authenticated user. Tokens are cached in-process for the lifetime of an MCP session so clients that omit `Authorization` on subsequent requests (a known Claude Code behaviour) keep working.
+- **Storage & retention.** Session token cache is in-memory only and is evicted after 30 minutes of inactivity. No user content (mnemons, campaigns, forum posts) is persisted by the MCP server — it is forwarded to the WebAPI and discarded. Logs retain only request metadata, not payload contents.
+- **Third-party sharing.** Requests are forwarded only to the Argo WebAPI and (during the OAuth flow) the Argo authorization server. No other third parties receive request data from this server.
+- **Contact.** Privacy questions: `support@argo.games`. Security disclosures: see the SECURITY policy on the Argo GitHub organization.
+
+The hosted privacy policy at the link above is the authoritative version and covers the full Argo platform including the WebAPI and WebApp.
+
+---
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

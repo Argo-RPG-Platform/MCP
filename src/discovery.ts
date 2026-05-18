@@ -66,6 +66,7 @@ export interface ManifestOptions {
 
 export function buildManifest(opts: ManifestOptions): Record<string, unknown> {
   return {
+    manifest_version: "0.2",
     name: "Argo MCP Server",
     description:
       "Remote MCP server for the Argo TTRPG/VTT platform. Lets AI assistants " +
@@ -78,6 +79,7 @@ export function buildManifest(opts: ManifestOptions): Record<string, unknown> {
     support_url: "https://github.com/Argo-RPG-Platform/MCP/issues",
     repository: "https://github.com/Argo-RPG-Platform/MCP",
     categories: ["games", "ttrpg", "worldbuilding", "campaign-management"],
+    privacy_policies: ["https://argo.games/policies/privacy-policy"],
     remote_url: `${opts.mcpBase}/mcp`,
     sse_url: `${opts.mcpBase}/sse`,
     transports: ["streamable-http", "sse"],
