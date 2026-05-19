@@ -243,6 +243,23 @@ npm start         # compiled dist/
 
 ---
 
+## Pre-built Agent Skills
+
+Once the MCP is connected, you can install the [argo-agent-skills](https://github.com/Argo-RPG-Platform/argo-agent-skills) plugin to get ready-made Game Master workflows that orchestrate the tools below — session prep, post-session recap, NPC generation, and a guided MCP setup walkthrough. The same skill source ships parallel packaging for Claude (Code + Claude.ai) and OpenAI-compatible clients (Codex, ChatGPT).
+
+**Claude Code:**
+
+```
+/plugin marketplace add Argo-RPG-Platform/argo-agent-skills
+/plugin install argo-gm-pack@argo
+```
+
+**Claude.ai / Codex / ChatGPT:** download the per-target zip from the [latest release](https://github.com/Argo-RPG-Platform/argo-agent-skills/releases/latest) and follow the upload steps in that repo's README.
+
+See the [Argo Skills docs](https://app.argo.games/docs/skills) for the full list of skills, examples, and authoring guidance for your own.
+
+---
+
 ## Available tools
 
 This server exposes tools across campaigns, mnemons, sessions, guilds, friends, invites, and the Argo community forum.
