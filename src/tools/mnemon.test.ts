@@ -56,12 +56,11 @@ describe("describeMnemonTypes", () => {
     );
   });
 
-  it("documents the HTML format and inline image rules", () => {
-    const result = describeMnemonTypes() as { htmlFormat: { allowedInlineTags: string[]; images: { caps: string } } };
-    expect(result.htmlFormat.allowedInlineTags).toEqual(
-      expect.arrayContaining(["<b>", "<i>", "<a href>", "<img>"])
-    );
-    expect(result.htmlFormat.images.caps).toMatch(/5MB/);
+  it("documents the markdown format, mentions, and image rules", () => {
+    const result = describeMnemonTypes() as { markdownFormat: { summary: string; mentions: string; images: string } };
+    expect(result.markdownFormat.summary).toMatch(/Markdown/);
+    expect(result.markdownFormat.mentions).toMatch(/@\[label\]\(mnemon:/);
+    expect(result.markdownFormat.images).toMatch(/asset:/);
   });
 
   it("documents the blockOps vocabulary", () => {
@@ -108,7 +107,7 @@ describe("createNpcMnemons", () => {
     argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Goblin" }] });
     await createNpcMnemons({
       campaignId: CAMPAIGN,
-      items: [{ title: "Goblin", blocks: [{ type: "paragraph", content: "ugly" }], npcType: "INDIVIDUAL" }],
+      items: [{ title: "Goblin", markdown: "ugly", npcType: "INDIVIDUAL" }],
     });
     expect(argoPost).toHaveBeenCalledWith(
       expect.stringMatching(/\/mnemons\/npc$/),
@@ -126,7 +125,7 @@ describe("createNpcMnemons", () => {
       items: [
         {
           title: "Bartender",
-          blocks: [{ type: "paragraph", content: "x" }],
+          markdown: "x",
           npcType: "INDIVIDUAL",
           primaryLocationEntryId: "Tavern",
         },
@@ -142,7 +141,7 @@ describe("createLocationMnemons", () => {
     argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: LOC_HEX, title: "Town" }] });
     await createLocationMnemons({
       campaignId: CAMPAIGN,
-      items: [{ title: "Town", blocks: [{ type: "paragraph", content: "x" }], levelId: "L_Town" }],
+      items: [{ title: "Town", markdown: "x", levelId: "L_Town" }],
     });
     expect(argoPost).toHaveBeenCalledWith(
       expect.stringMatching(/\/mnemons\/location$/),
@@ -160,7 +159,7 @@ describe("createQuestMnemons", () => {
       items: [
         {
           title: "Save the cat",
-          blocks: [{ type: "paragraph", content: "x" }],
+          markdown: "x",
           questStatus: "active",
           issuerNpcEntryId: "Mayor",
         },
@@ -177,7 +176,7 @@ describe("createQuestMnemons", () => {
       items: [
         {
           title: "Save the cat",
-          blocks: [{ type: "paragraph", content: "x" }],
+          markdown: "x",
           steps: [
             { stepId: "s1", title: "Find the cat", status: "Available" },
             { title: "Bring it home" },
@@ -209,7 +208,7 @@ describe("createQuestMnemons", () => {
       items: [
         {
           title: "Q",
-          blocks: [{ type: "paragraph", content: "x" }],
+          markdown: "x",
           steps: [
             { title: "Talk to mayor", targetNpcEntryIds: ["Mayor"] },
           ],
@@ -229,7 +228,7 @@ describe("createQuestMnemons", () => {
         items: [
           {
             title: "Q",
-            blocks: [{ type: "paragraph", content: "x" }],
+            markdown: "x",
             steps: [{ title: "x", status: "NotARealStatus" as unknown as "Available" }],
           },
         ],
@@ -247,7 +246,7 @@ describe("createPlayerMnemons", () => {
       items: [
         {
           title: "Maelen",
-          blocks: [{ type: "paragraph", content: "x" }],
+          markdown: "x",
           playerKind: "CHARACTER",
           parentEntryId: "The Misfits",
           partyId: "party-id",
@@ -305,7 +304,7 @@ describe("updateMnemonsContent", () => {
         {
           entryId: ENTRY,
           ops: [
-            { op: "append", blockType: "paragraph", text: "<b>hello</b>" },
+            { op: "append", markdown: "**hello**" },
             { op: "remove", blockId: "old-block-id" },
           ],
         },
@@ -318,7 +317,7 @@ describe("updateMnemonsContent", () => {
           expect.objectContaining({
             entryId: ENTRY,
             ops: expect.arrayContaining([
-              expect.objectContaining({ op: "append", blockType: "paragraph", text: "<b>hello</b>" }),
+              expect.objectContaining({ op: "append", markdown: "**hello**" }),
               expect.objectContaining({ op: "remove", blockId: "old-block-id" }),
             ]),
           }),
@@ -335,7 +334,7 @@ describe("updateMnemonsContent", () => {
       items: [
         {
           entryId: "The Misfits",
-          ops: [{ op: "append", blockType: "paragraph", text: "x" }],
+          ops: [{ op: "append", markdown: "x" }],
         },
       ],
     });
