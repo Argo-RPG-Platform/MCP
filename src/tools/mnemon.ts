@@ -1,10 +1,11 @@
 /**
  * MCP tools for reading and writing Argo campaign mnemon (memory/lore) entries.
  *
- * Per-type create + update tools, plus a single content-edit tool for block-level
- * mutations (append / insertAfter / replace / remove). Text blocks are HTML — use
- * <b>...</b> not **bold**. Inline <img src="data:..."> or <img src="https://...">
- * is uploaded to the campaign asset bucket and the src is rewritten to asset:<id>.
+ * Per-type create + update tools, plus a single content-edit tool for body
+ * mutations (append / insertAfter / replace / remove). Body content is authored
+ * as Markdown; the server canonicalizes it to the rich document model. Mentions
+ * use @[label](mnemon:<entryId>); images use ![caption](asset:<assetId>@<campaignId>)
+ * (upload the asset first — inline base64 is not accepted in Markdown).
  */
 
 import { z } from "zod";
@@ -143,16 +144,10 @@ export const describeMnemonTypesOutputSchema = z.object({
     tool: z.string(),
     description: z.string(),
   })),
-  htmlFormat: z.object({
+  markdownFormat: z.object({
     summary: z.string(),
-    allowedInlineTags: z.array(z.string()),
-    doNot: z.array(z.string()),
-    images: z.object({
-      supportedSrc: z.array(z.string()),
-      rewrite: z.string(),
-      caps: z.string(),
-      failureMode: z.string(),
-    }),
+    mentions: z.string(),
+    images: z.string(),
   }),
   blockOps: z.object({
     tool: z.string(),
@@ -162,7 +157,6 @@ export const describeMnemonTypesOutputSchema = z.object({
       optional: z.array(z.string()),
       description: z.string(),
     })),
-    blockTypes: z.array(z.string()),
     atomicity: z.string(),
     addressing: z.string(),
   }),
@@ -234,31 +228,21 @@ export function describeMnemonTypes(): object {
       { type: "Player", tool: "create_player_mnemons / update_player_mnemons", description: "Player-facing mnemon (party root, character notes, party notes)." },
       { type: "Custom", tool: "create_custom_mnemons / update_custom_mnemons", description: "Custom entry type with free-form title." },
     ],
-    htmlFormat: {
-      summary: "Text inside mnemon block 'text' is HTML, not Markdown.",
-      allowedInlineTags: ["<b>", "<strong>", "<i>", "<em>", "<u>", "<s>", "<code>", "<a href>", "<br>", "<img>"],
-      doNot: [
-        "Do NOT use Markdown — '**bold**' / '_italic_' / '# heading' / '[text](url)' will be flagged in warnings and produce literal punctuation.",
-        "Do NOT wrap text in block-level tags (<p>, <div>, <ul>, <li>, <h1>) inside 'text'. Use mnemon block types instead: paragraph, heading1/2, bullet_list, numbered_list, quote, code, callout, divider.",
-      ],
-      images: {
-        supportedSrc: ["data:image/<type>;base64,<...>", "https://<external-url>", "asset:<existing-asset-id>"],
-        rewrite: "Inline <img> with data: or https:// src is uploaded to the campaign bucket; src is rewritten to asset:<id>.",
-        caps: "5MB per image, max 5 inline images per text block, 20MB aggregate per write request.",
-        failureMode: "Failed/oversize/SSRF-blocked <img> tags are stripped with a warning; the rest of the write succeeds.",
-      },
+    markdownFormat: {
+      summary: "Mnemon body content is authored as Markdown (headings, lists, quotes, code fences, bold/italic/strikethrough, links). The server canonicalizes it to the rich document model; do not send HTML.",
+      mentions: "Link to another mnemon with @[label](mnemon:<entryId>) — label is display text, the id is the target entry id from get_mnemon / list_mnemons.",
+      images: "Embed an uploaded asset with ![caption](asset:<assetId>@<campaignId>). Upload the image first via the campaign asset tool, then reference it — inline base64 / data: URLs are not accepted in Markdown.",
     },
     blockOps: {
       tool: "update_mnemons_content",
       ops: [
-        { op: "append", required: ["blockType"], optional: ["text", "language", "checked", "assetId", "data", "mimeType", "filename", "caption"], description: "Add a new block at the end of the entry." },
-        { op: "insertAfter", required: ["afterBlockId", "blockType"], optional: ["text", "language", "checked", "assetId", "data", "mimeType", "filename", "caption"], description: "Insert a new block immediately after an existing block." },
-        { op: "replace", required: ["blockId", "blockType"], optional: ["text", "language", "checked", "assetId", "data", "mimeType", "filename", "caption"], description: "Replace an existing block. The block's id is preserved so future ops can still address it." },
-        { op: "remove", required: ["blockId"], optional: [], description: "Delete an existing block." },
+        { op: "append", required: ["markdown"], optional: [], description: "Add the Markdown content to the END of the entry body. Use this to ADD information — it never resends or clobbers the existing body." },
+        { op: "insertAfter", required: ["afterBlockId", "markdown"], optional: [], description: "Insert the Markdown content immediately after the body node with afterBlockId." },
+        { op: "replace", required: ["blockId", "markdown"], optional: [], description: "Replace the body node with blockId. The first new node keeps the original id so later ops can still address it." },
+        { op: "remove", required: ["blockId"], optional: [], description: "Delete the body node with blockId." },
       ],
-      blockTypes: ["paragraph", "heading1", "heading2", "bullet_list", "numbered_list", "todo", "quote", "code", "callout", "divider", "image"],
       atomicity: "All ops for one entry are validated up-front and applied atomically. A bad op rejects the whole entry's batch with the offending opIndex; no partial mutation. Multiple entries in one call are independent — each entry's batch is its own transaction.",
-      addressing: "Block ids are returned by get_mnemon. Use them to target replace / remove / insertAfter. Newly created blocks (append, insertAfter, replace) get fresh server-generated UUIDs.",
+      addressing: "Each body node returned by get_mnemon has a stable id. Use those ids for replace / remove / insertAfter. A single op's Markdown may produce several nodes; new nodes get fresh server-generated ids.",
     },
     commonFields: [
       { name: "visibility", type: "enum", values: ["HIDDEN", "INTERNAL", "PUBLIC"], description: "HIDDEN: GM only. INTERNAL: party members (default). PUBLIC: requires a published campaign." },
@@ -332,39 +316,6 @@ export async function getMnemon(
 // Shared block-input shape (used by all create_*_mnemons tools)
 // ---------------------------------------------------------------------------
 
-const blockInputSchema = z
-  .object({
-    type: z
-      .enum([
-        "paragraph",
-        "heading1",
-        "heading2",
-        "bullet_list",
-        "numbered_list",
-        "todo",
-        "quote",
-        "code",
-        "callout",
-        "divider",
-        "image",
-      ])
-      .describe("Block type."),
-    content: z
-      .string()
-      .optional()
-      .describe(
-        "HTML text content for text-type blocks. Use <b>/<i>/<u>/<a>/<br>/<img> — NOT Markdown."
-      ),
-    language: z.string().optional().describe("Code-block language hint."),
-    checked: z.boolean().optional().describe("Todo-block checked state."),
-    assetId: z.string().optional().describe("Image block: pre-uploaded campaign asset id."),
-    data: z.string().optional().describe("Image block: inline base64 data (decoded server-side, max 5MB)."),
-    mimeType: z.string().optional().describe("Image block mime type — required when 'data' is set."),
-    filename: z.string().optional().describe("Image block filename hint."),
-    caption: z.string().optional().describe("Image block caption."),
-  })
-  .describe("A single content block. Image blocks need assetId OR (data + mimeType).");
-
 const visibilityEnum = z.enum(["HIDDEN", "INTERNAL", "PUBLIC"]).optional();
 const tagsSchema = z.array(z.string()).optional();
 const stringArray = () => z.array(z.string()).optional();
@@ -375,7 +326,13 @@ const stringArray = () => z.array(z.string()).optional();
 
 const createCommon = {
   title: z.string().min(1).describe("Title of the new entry."),
-  blocks: z.array(blockInputSchema).min(1).describe("Initial content blocks (at least one)."),
+  markdown: z
+    .string()
+    .min(1)
+    .describe(
+      "Body content as Markdown. Mentions: @[label](mnemon:<entryId>). " +
+        "Images: ![caption](asset:<assetId>@<campaignId>) — upload the asset first."
+    ),
   visibility: visibilityEnum,
   tags: tagsSchema,
 };
@@ -999,34 +956,17 @@ export async function updateCustomMnemons(
 const blockOpSchema = z
   .object({
     op: z.enum(["append", "insertAfter", "replace", "remove"]).describe("The op to apply."),
-    blockId: z.string().optional().describe("Required for replace and remove."),
-    afterBlockId: z.string().optional().describe("Required for insertAfter."),
-    blockType: z
-      .enum([
-        "paragraph",
-        "heading1",
-        "heading2",
-        "bullet_list",
-        "numbered_list",
-        "todo",
-        "quote",
-        "code",
-        "callout",
-        "divider",
-        "image",
-      ])
+    blockId: z.string().optional().describe("Required for replace and remove: a body node id from get_mnemon."),
+    afterBlockId: z.string().optional().describe("Required for insertAfter: the body node id the new content follows."),
+    markdown: z
+      .string()
       .optional()
-      .describe("Required for append, insertAfter, replace."),
-    text: z.string().optional().describe("HTML text for text-type blocks."),
-    language: z.string().optional(),
-    checked: z.boolean().optional(),
-    assetId: z.string().optional(),
-    data: z.string().optional(),
-    mimeType: z.string().optional(),
-    filename: z.string().optional(),
-    caption: z.string().optional(),
+      .describe(
+        "Markdown content for append / insertAfter / replace. May produce several body nodes. " +
+          "Mentions: @[label](mnemon:<entryId>); images: ![caption](asset:<assetId>@<campaignId>)."
+      ),
   })
-  .describe("A single block-level mutation. See describe_mnemon_types.blockOps.");
+  .describe("A single body mutation, keyed by node id. See describe_mnemon_types.blockOps.");
 
 const updateContentItemSchema = z.object({
   entryId: z.string().min(1).describe("Mnemon entry id (hex) or exact title."),

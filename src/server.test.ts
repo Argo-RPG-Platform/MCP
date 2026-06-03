@@ -122,7 +122,7 @@ describe("MCP server output schemas", () => {
         items: [
           {
             title: "Captain Nyra",
-            blocks: [{ type: "paragraph", content: "Harbor master" }],
+            markdown: "Harbor master",
             npcType: "INDIVIDUAL",
           },
         ],
