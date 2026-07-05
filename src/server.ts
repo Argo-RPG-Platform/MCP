@@ -87,6 +87,7 @@ import {
   updateSessionSummaryMnemons,
   updateSessionSummaryMnemonsInputSchema,
   type MnemonBulkResponse,
+  type MnemonListPage,
   type MnemonSummary,
   type Relationship,
   type RelationshipsResponse,
@@ -248,11 +249,18 @@ function capToolResult(result: ToolResult): ToolResult {
     : 0;
   if (textLen + structLen <= RESULT_CHAR_CAP) return result;
 
-  const hint =
-    "Result truncated: this tool returned more than 25,000 tokens, which exceeds the Anthropic " +
-    "Connector limit. Narrow your query — add filters, pass a smaller limit, or paginate.";
+  // Keep as much of the text payload as fits instead of discarding the whole
+  // result — a clipped list still lets the model act (and tells it how to get
+  // the rest). structuredContent is dropped: it duplicates the text and
+  // cannot be partially valid against the tool's output schema.
+  const notice =
+    "\n\n[Result truncated: the full result exceeds the 25,000-token connector limit. " +
+    "Narrow the query — add filters, or use limit/offset where the tool supports them " +
+    "(e.g. list_mnemons).]";
+  const fullText = result.content.map((c) => c.text).join("\n");
+  const budget = Math.max(0, RESULT_CHAR_CAP - notice.length);
   return {
-    content: [{ type: "text", text: hint }],
+    content: [{ type: "text", text: fullText.slice(0, budget) + notice }],
     structuredContent: { truncated: true, reason: "result_exceeds_25k_tokens" },
     isError: true,
   };
@@ -266,7 +274,22 @@ async function runTool<T>(fn: () => Promise<T>, format: (result: T) => ToolResul
   }
 }
 
-const json = (v: unknown) => JSON.stringify(v, null, 2);
+// Compact on purpose: the text payload is read by the model, not a human, and
+// 2-space indentation inflates every response's token count for no benefit.
+const json = (v: unknown) => JSON.stringify(v);
+
+// idMap keys are display names, which are not guaranteed unique. Suffix
+// duplicates ("Name (2)", …) instead of silently dropping entries — the
+// inline [id: …] in the text payload remains the authoritative mapping.
+function buildIdMap(pairs: Array<[string, string]>): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const [name, id] of pairs) {
+    let key = name;
+    for (let n = 2; key in map; n++) key = `${name} (${n})`;
+    map[key] = id;
+  }
+  return map;
+}
 const textContent = (text: string): ToolTextContent => [{ type: "text", text }];
 const withStructuredContent = <T extends object>(text: string, structuredContent: T): ToolResult => ({
   content: textContent(text),
@@ -290,6 +313,8 @@ const guildListOutputSchema = z.object({
 const mnemonListOutputSchema = z.object({
   entries: z.array(mnemonSummaryOutputSchema),
   idMap: z.record(z.string()),
+  hasMore: z.boolean(),
+  nextOffset: z.number().optional(),
 });
 
 const coGmListOutputSchema = z.object({
@@ -489,7 +514,7 @@ export function createServer(): McpServer {
             : fmtCampaigns(campaigns),
           {
             campaigns,
-            idMap: Object.fromEntries(campaigns.map((c) => [c.campaignName, c.id])),
+            idMap: buildIdMap(campaigns.map((c) => [c.campaignName, c.id])),
           }
         )
       )
@@ -659,7 +684,9 @@ export function createServer(): McpServer {
       description:
         "List mnemon (lore/memory) entries for an Argo campaign. " +
         "Optional filters: `title` (case-insensitive substring on entry title only) and " +
-        "`type` (e.g. NPC, Location, Quest). Returns all matching entries — pagination is automatic. " +
+        "`type` (e.g. NPC, Location, Quest). Returns up to `limit` entries (default 100); " +
+        "when `hasMore` is true, call again with `offset` = the returned `nextOffset` to " +
+        "fetch the next page. " +
         "Each entry includes both `title` and `entryId` (shown inline as `[id: …]` and in " +
         "structuredContent.idMap). Use the `entryId` verbatim for any tool that takes one; " +
         "refer to entries by `title` in prose to the user.",
@@ -671,11 +698,18 @@ export function createServer(): McpServer {
     (input) =>
       runTool(
         () => listMnemons(input),
-        (entries: MnemonSummary[]) => withStructuredContent(
-          entries.length === 0 ? "No mnemon entries found." : fmtMnemons(entries),
+        (page: MnemonListPage) => withStructuredContent(
+          page.entries.length === 0
+            ? "No mnemon entries found."
+            : fmtMnemons(page.entries) +
+              (page.hasMore
+                ? `\nMore entries available — call list_mnemons again with offset=${page.nextOffset}.`
+                : ""),
           {
-            entries,
-            idMap: Object.fromEntries(entries.map((e) => [`${e.title}|${e.type}`, e.entryId])),
+            entries: page.entries,
+            idMap: buildIdMap(page.entries.map((e) => [`${e.title}|${e.type}`, e.entryId])),
+            hasMore: page.hasMore,
+            ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
           }
         )
       )
@@ -1009,7 +1043,7 @@ export function createServer(): McpServer {
             : fmtGuilds(guilds),
           {
             guilds,
-            idMap: Object.fromEntries(guilds.map((g) => [g.name, g.guildId])),
+            idMap: buildIdMap(guilds.map((g) => [g.name, g.guildId])),
           }
         )
       )
@@ -1340,7 +1374,10 @@ export function createServer(): McpServer {
   server.registerTool(
     "forum_list_topics",
     {
-      description: "List topics in a specific forum category. Use forum_list_categories to get category slugs and IDs.",
+      description:
+        "List topics in a specific forum category. Provide categorySlug and/or categoryId — " +
+        "given only one, the other is resolved from the category list automatically. " +
+        "Use forum_list_categories to discover categories.",
       inputSchema: forumListTopicsInputSchema.shape,
       outputSchema: forumTopicListOutputSchema,
       annotations: READ_ONLY,
@@ -1372,7 +1409,9 @@ export function createServer(): McpServer {
   server.registerTool(
     "forum_read_topic",
     {
-      description: "Read the full content of a forum topic including all posts and replies.",
+      description:
+        "Read the full content of a forum topic including all posts and replies. " +
+        "Post bodies are returned as plain text (HTML markup is stripped).",
       inputSchema: forumReadTopicInputSchema.shape,
       outputSchema: forumTopicDetailOutputSchema,
       annotations: READ_ONLY,

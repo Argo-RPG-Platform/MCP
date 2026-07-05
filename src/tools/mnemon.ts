@@ -275,26 +275,87 @@ export const listMnemonsInputSchema = z.object({
   campaignId: z.string().min(1).describe("ID of the campaign."),
   title: z.string().optional().describe("Case-insensitive substring filter on title."),
   type: z.string().optional().describe("Mnemon type filter (NPC, Location, Quest, …)."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe("Maximum entries to return (default 100)."),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("Entries to skip. Pass the nextOffset from the previous call to fetch the next page."),
 });
 
-const LIST_MNEMONS_PAGE_SIZE = 100;
+export interface MnemonListPage {
+  entries: MnemonSummary[];
+  hasMore: boolean;
+  nextOffset?: number;
+}
 
-export async function listMnemons(
-  input: z.infer<typeof listMnemonsInputSchema>
+const LIST_MNEMONS_PAGE_SIZE = 100;
+const LIST_MNEMONS_DEFAULT_LIMIT = 100;
+
+interface MnemonListFilters {
+  title?: string;
+  type?: string;
+}
+
+/**
+ * Fetches WebAPI pages until at least `needed` entries are collected or the
+ * upstream runs dry (short page). WebAPI's page size is fixed here at 100.
+ */
+async function fetchMnemonPages(
+  campaignId: string,
+  filters: MnemonListFilters,
+  needed: number
 ): Promise<MnemonSummary[]> {
-  const basePath = `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons`;
+  const basePath = `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons`;
   const results: MnemonSummary[] = [];
-  for (let page = 0; ; page++) {
+  for (let page = 0; results.length < needed; page++) {
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("size", String(LIST_MNEMONS_PAGE_SIZE));
-    if (input.title) params.set("title", input.title);
-    if (input.type) params.set("type", input.type);
+    if (filters.title) params.set("title", filters.title);
+    if (filters.type) params.set("type", filters.type);
     const batch = await argoGet<MnemonSummary[]>(`${basePath}?${params.toString()}`);
     results.push(...batch);
     if (batch.length < LIST_MNEMONS_PAGE_SIZE) break;
   }
   return results;
+}
+
+/**
+ * Fetches every matching entry. Used by the title→id resolver, which needs
+ * the full campaign index to detect ambiguity — never expose this as a tool
+ * surface; large campaigns would blow the connector result cap.
+ */
+export async function listAllMnemons(input: {
+  campaignId: string;
+  title?: string;
+  type?: string;
+}): Promise<MnemonSummary[]> {
+  return fetchMnemonPages(input.campaignId, input, Number.POSITIVE_INFINITY);
+}
+
+export async function listMnemons(
+  input: z.infer<typeof listMnemonsInputSchema>
+): Promise<MnemonListPage> {
+  const limit = input.limit ?? LIST_MNEMONS_DEFAULT_LIMIT;
+  const offset = input.offset ?? 0;
+  // Fetch one entry past the requested window so hasMore is exact without
+  // scanning the whole campaign.
+  const fetched = await fetchMnemonPages(input.campaignId, input, offset + limit + 1);
+  const entries = fetched.slice(offset, offset + limit);
+  const hasMore = fetched.length > offset + limit;
+  return {
+    entries,
+    hasMore,
+    ...(hasMore ? { nextOffset: offset + limit } : {}),
+  };
 }
 
 export const getMnemonInputSchema = z.object({
