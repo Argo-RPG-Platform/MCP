@@ -255,4 +255,62 @@ describe("MCP server output schemas", () => {
     expect(result.structuredContent).toBeUndefined();
     expect(textAt(result)).toContain("boom");
   });
+
+  it("suffixes duplicate names in idMap instead of dropping entries", async () => {
+    argoGet.mockResolvedValueOnce([
+      { id: "camp-1", gameMasterId: "gm-1", campaignName: "Reboot" },
+      { id: "camp-2", gameMasterId: "gm-1", campaignName: "Reboot" },
+    ]);
+
+    const result = await client.callTool({ name: "list_campaigns", arguments: {} });
+
+    expect(result.structuredContent).toMatchObject({
+      idMap: {
+        "Reboot": "camp-1",
+        "Reboot (2)": "camp-2",
+      },
+    });
+  });
+
+  it("exposes pagination metadata on list_mnemons", async () => {
+    const page = Array.from({ length: 100 }, (_, i) => ({
+      entryId: `id${i}`.padEnd(32, "0"),
+      title: `entry-${i}`,
+      type: "Lore",
+    }));
+    argoGet.mockResolvedValueOnce(page);
+
+    const result = await client.callTool({
+      name: "list_mnemons",
+      arguments: { campaignId: "camp-1", limit: 10 },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      hasMore: true,
+      nextOffset: 10,
+    });
+    expect(textAt(result)).toContain("offset=10");
+  });
+
+  it("truncates oversized results instead of discarding them", async () => {
+    // ~200k chars of entries — far past the 100k char (25k token) cap.
+    const huge = Array.from({ length: 500 }, (_, i) => ({
+      entryId: `id${i}`.padEnd(32, "0"),
+      title: `entry-${i} ${"x".repeat(400)}`,
+      type: "Lore",
+    }));
+    argoGet.mockResolvedValueOnce(huge).mockResolvedValueOnce([]);
+
+    const result = await client.callTool({
+      name: "list_mnemons",
+      arguments: { campaignId: "camp-1", limit: 500 },
+    });
+
+    expect(result.isError).toBe(true);
+    const text = textAt(result) ?? "";
+    expect(text).toContain("Result truncated");
+    // Partial data survives — the first entries are still in the payload.
+    expect(text).toContain("entry-0");
+    expect(text.length).toBeLessThanOrEqual(100_000);
+  });
 });

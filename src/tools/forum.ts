@@ -195,6 +195,30 @@ export const forumPostResponseOutputSchema: z.ZodType<ForumPostResponse> = z.obj
   username: z.string().nullish(),
 }).passthrough();
 
+/**
+ * Collapses Discourse "cooked" HTML to plain text. Cooked payloads are the
+ * single largest token sink in forum responses; the model only needs the
+ * prose, not the markup.
+ */
+function stripCookedHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|blockquote|h[1-6]|pre)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripPostHtml<T extends { cooked?: string | null }>(post: T): T {
+  return post.cooked ? { ...post, cooked: stripCookedHtml(post.cooked) } : post;
+}
+
 // ---------------------------------------------------------------------------
 // Reads (forum.read)
 // ---------------------------------------------------------------------------
@@ -206,15 +230,57 @@ export async function forumListCategories(): Promise<ForumCategoriesResponse> {
 }
 
 export const forumListTopicsInputSchema = z.object({
-  categorySlug: z.string().min(1).describe("Category slug (e.g. 'bug-reports')."),
-  categoryId: z.number().int().describe("Numeric category ID."),
+  categorySlug: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Category slug (e.g. 'bug-reports'). Provide this and/or categoryId."),
+  categoryId: z
+    .number()
+    .int()
+    .optional()
+    .describe("Numeric category ID. Provide this and/or categorySlug."),
 });
+
+function findCategory(
+  categories: ForumCategory[],
+  match: (c: ForumCategory) => boolean
+): ForumCategory | undefined {
+  for (const c of categories) {
+    if (match(c)) return c;
+    const sub = c.subcategory_list ? findCategory(c.subcategory_list, match) : undefined;
+    if (sub) return sub;
+  }
+  return undefined;
+}
 
 export async function forumListTopics(
   input: z.infer<typeof forumListTopicsInputSchema>
 ): Promise<ForumTopicListResponse> {
+  let { categorySlug, categoryId } = input;
+  if (!categorySlug && categoryId === undefined) {
+    throw new Error(
+      "Provide categorySlug and/or categoryId — call forum_list_categories to see both."
+    );
+  }
+  // The upstream endpoint needs both; resolve the missing half from the
+  // category list so callers can pass just one.
+  if (!categorySlug || categoryId === undefined) {
+    const { category_list } = await forumListCategories();
+    const found = findCategory(category_list.categories, (c) =>
+      categorySlug ? c.slug === categorySlug : c.id === categoryId
+    );
+    if (!found) {
+      throw new Error(
+        `No forum category found for ${categorySlug ? `slug "${categorySlug}"` : `id ${categoryId}`}. ` +
+          "Call forum_list_categories for the valid list."
+      );
+    }
+    categorySlug = found.slug;
+    categoryId = found.id;
+  }
   return argoGet<ForumTopicListResponse>(
-    `/mcp/v1/forum/topics?categorySlug=${encodeURIComponent(input.categorySlug)}&categoryId=${input.categoryId}`
+    `/mcp/v1/forum/topics?categorySlug=${encodeURIComponent(categorySlug)}&categoryId=${categoryId}`
   );
 }
 
@@ -231,7 +297,14 @@ export const forumReadTopicInputSchema = z.object({
 export async function forumReadTopic(
   input: z.infer<typeof forumReadTopicInputSchema>
 ): Promise<ForumTopicDetailResponse> {
-  return argoGet<ForumTopicDetailResponse>(`/mcp/v1/forum/topics/${input.topicId}`);
+  const topic = await argoGet<ForumTopicDetailResponse>(`/mcp/v1/forum/topics/${input.topicId}`);
+  return {
+    ...topic,
+    post_stream: {
+      ...topic.post_stream,
+      posts: topic.post_stream.posts.map(stripPostHtml),
+    },
+  };
 }
 
 export const forumSearchInputSchema = z.object({
@@ -241,7 +314,13 @@ export const forumSearchInputSchema = z.object({
 export async function forumSearch(
   input: z.infer<typeof forumSearchInputSchema>
 ): Promise<ForumSearchResponse> {
-  return argoGet<ForumSearchResponse>(`/mcp/v1/forum/search?q=${encodeURIComponent(input.q)}`);
+  const result = await argoGet<ForumSearchResponse>(
+    `/mcp/v1/forum/search?q=${encodeURIComponent(input.q)}`
+  );
+  return {
+    ...result,
+    ...(result.posts ? { posts: result.posts.map(stripPostHtml) } : {}),
+  };
 }
 
 export const forumGetUserPostsInputSchema = z.object({});

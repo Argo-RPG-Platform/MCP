@@ -82,27 +82,64 @@ describe("describeMnemonTypes", () => {
 // listMnemons
 // ---------------------------------------------------------------------------
 
+const lorePage = (start: number, count: number): MnemonSummary[] =>
+  Array.from({ length: count }, (_, i) => ({
+    entryId: `id${start + i}`.padEnd(32, "0"),
+    title: `entry-${start + i}`,
+    type: "Lore",
+  }));
+
 describe("listMnemons", () => {
-  it("returns first page when fewer than page-size results", async () => {
+  it("returns a single short page with hasMore=false", async () => {
     const entries: MnemonSummary[] = [
       { entryId: ENTRY, title: "Town", type: "Location" },
     ];
     argoGet.mockResolvedValueOnce(entries);
     const result = await listMnemons({ campaignId: CAMPAIGN });
-    expect(result).toEqual(entries);
+    expect(result.entries).toEqual(entries);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextOffset).toBeUndefined();
     expect(argoGet).toHaveBeenCalledTimes(1);
   });
 
-  it("paginates when results fill a page", async () => {
-    const fullPage: MnemonSummary[] = Array.from({ length: 100 }, (_, i) => ({
-      entryId: `id${i}`.padEnd(32, "0"),
-      title: `entry-${i}`,
-      type: "Lore",
-    }));
-    argoGet.mockResolvedValueOnce(fullPage).mockResolvedValueOnce([]);
+  it("reports hasMore=false when results end exactly on a page boundary", async () => {
+    argoGet.mockResolvedValueOnce(lorePage(0, 100)).mockResolvedValueOnce([]);
     const result = await listMnemons({ campaignId: CAMPAIGN });
-    expect(result).toHaveLength(100);
+    expect(result.entries).toHaveLength(100);
+    expect(result.hasMore).toBe(false);
     expect(argoGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("respects limit and reports nextOffset when more entries exist", async () => {
+    argoGet.mockResolvedValueOnce(lorePage(0, 100));
+    const result = await listMnemons({ campaignId: CAMPAIGN, limit: 50 });
+    expect(result.entries).toHaveLength(50);
+    expect(result.entries[0].title).toBe("entry-0");
+    expect(result.hasMore).toBe(true);
+    expect(result.nextOffset).toBe(50);
+    // The first upstream page already covers limit+1 — no second fetch.
+    expect(argoGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips offset entries and pages upstream until the window is covered", async () => {
+    argoGet
+      .mockResolvedValueOnce(lorePage(0, 100))
+      .mockResolvedValueOnce(lorePage(100, 100))
+      .mockResolvedValueOnce(lorePage(200, 30));
+    const result = await listMnemons({ campaignId: CAMPAIGN, offset: 150, limit: 50 });
+    expect(result.entries).toHaveLength(50);
+    expect(result.entries[0].title).toBe("entry-150");
+    expect(result.entries[49].title).toBe("entry-199");
+    expect(result.hasMore).toBe(true);
+    expect(result.nextOffset).toBe(200);
+    expect(argoGet).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns an empty page with hasMore=false when offset is past the end", async () => {
+    argoGet.mockResolvedValueOnce(lorePage(0, 10));
+    const result = await listMnemons({ campaignId: CAMPAIGN, offset: 50 });
+    expect(result.entries).toHaveLength(0);
+    expect(result.hasMore).toBe(false);
   });
 });
 

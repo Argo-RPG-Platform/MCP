@@ -12,7 +12,7 @@
  * error on miss / ambiguity.
  */
 
-import { listMnemons, type MnemonSummary } from "./mnemon.js";
+import { listAllMnemons, type MnemonSummary } from "./mnemon.js";
 
 export const HEX_ENTRY_ID_RE = /^[0-9A-Fa-f]{32}$/;
 
@@ -46,7 +46,9 @@ export class MnemonResolver {
 
   private list(): Promise<MnemonSummary[]> {
     if (!this.cache) {
-      this.cache = listMnemons({ campaignId: this.campaignId });
+      // Full index, not the paged tool surface — ambiguity detection must see
+      // every entry in the campaign.
+      this.cache = listAllMnemons({ campaignId: this.campaignId });
     }
     return this.cache;
   }
