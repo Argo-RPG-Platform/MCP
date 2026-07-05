@@ -15,6 +15,7 @@ import {
   createQuestMnemonsInputSchema,
   createPlayerMnemons,
   describeMnemonTypes,
+  describeMnemonTypesOutputSchema,
   listMnemons,
   updateNpcMnemons,
   updateMnemonsContent,
@@ -67,6 +68,13 @@ describe("describeMnemonTypes", () => {
     const result = describeMnemonTypes() as { blockOps: { ops: { op: string }[] } };
     const ops = result.blockOps.ops.map((o) => o.op);
     expect(ops).toEqual(["append", "insertAfter", "replace", "remove"]);
+  });
+
+  it("output schema covers every key the catalog actually returns", () => {
+    // .strict() turns unknown keys into a parse error, so a new catalog field
+    // that is missing from the output schema fails here instead of being
+    // silently stripped from structuredContent.
+    expect(() => describeMnemonTypesOutputSchema.strict().parse(describeMnemonTypes())).not.toThrow();
   });
 });
 

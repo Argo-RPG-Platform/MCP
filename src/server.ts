@@ -6,6 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ArgoApiError } from "./client.js";
+import { VERSION } from "./version.js";
 import {
   addCoGm,
   addCoGmInputSchema,
@@ -183,12 +184,21 @@ type ToolResult = { content: ToolTextContent; structuredContent?: ToolStructured
 const READ_ONLY = {
   readOnlyHint: true,
   destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 };
 
 const WRITE_SAFE = {
   readOnlyHint: false,
   destructiveHint: false,
+  openWorldHint: false,
+};
+
+// Field-setting updates: repeating the same call converges on the same state.
+const WRITE_IDEMPOTENT = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 };
 
@@ -394,7 +404,7 @@ function fmtMnemons(entries: MnemonSummary[]): string {
 
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: "argo-mcp", version: "1.1.0" },
+    { name: "argo-mcp", version: VERSION },
     {
       instructions:
         "ID handling: every list_* tool includes an `[id: …]` suffix on each entry " +
@@ -450,7 +460,7 @@ export function createServer(): McpServer {
         description,
         inputSchema: schema.shape,
         outputSchema: mnemonBulkResponseOutputSchema,
-        annotations: WRITE_SAFE,
+        annotations: WRITE_IDEMPOTENT,
         _meta: WRITE_META,
       },
       (input: z.infer<S>) =>
@@ -551,7 +561,7 @@ export function createServer(): McpServer {
         "GMs and co-GMs can call this; rule-system swaps remain WebApp-only.",
       inputSchema: updateCampaignInputSchema.shape,
       outputSchema: campaignOutputSchema,
-      annotations: WRITE_SAFE,
+      annotations: WRITE_IDEMPOTENT,
       _meta: WRITE_META,
     },
     (input) =>
@@ -722,8 +732,8 @@ export function createServer(): McpServer {
 
   // Per-type create tools. Each takes items[] (1-50). Use the per-type tool —
   // the schemas only expose fields that apply to that type. For mixed-type
-  // seeding, call multiple of these tools in one turn. Text inside each block's
-  // `content` is HTML — see describe_mnemon_types.htmlFormat.
+  // seeding, call multiple of these tools in one turn. Each item's `markdown`
+  // is the body content — see describe_mnemon_types.markdownFormat.
   registerCreateMnemonsTool(
     "create_npc_mnemons",
     "Create NPC mnemons (FACTION or INDIVIDUAL). npcType is REQUIRED on each item. Use memberNpcEntryIds (on FACTIONs) and affiliationEntryIds (on INDIVIDUALs) to wire membership; the server projects into MEMBER relationships. Players may not call this — GM/co-GM only.",
@@ -844,11 +854,11 @@ export function createServer(): McpServer {
     "update_mnemons_content",
     {
       description:
-        "Edit the content blocks of one or more mnemon entries. Each item carries an entryId and an ordered list of ops (append, insertAfter, replace, remove) applied atomically per entry. " +
-        "Block addressing: get block ids from get_mnemon, then target them in replace/remove/insertAfter. New blocks (append, insertAfter, replace) get fresh server-generated UUIDs. " +
-        "Text in block 'text' is HTML — use <b>, <i>, <a>, <br>, <img>; do NOT use Markdown like '**bold**' or '# heading'. Use blockType for paragraph/heading1/heading2/bullet_list/numbered_list/todo/quote/code/callout/divider/image. " +
-        "Inline <img src=\"data:...\"> or <img src=\"https://...\"> is uploaded to the campaign asset bucket and the src is rewritten to asset:<id>. SSRF-blocked / oversize / failed fetches are stripped with a warning. " +
-        "On a bad op (missing blockId, unknown blockType, etc.) the whole entry's batch is rejected with the failedOpIndex; no partial mutation per entry.",
+        "Edit the body content of one or more mnemon entries. Each item carries an entryId and an ordered list of ops (append, insertAfter, replace, remove) applied atomically per entry. " +
+        "Op content is authored as Markdown (headings, lists, quotes, code fences, bold/italic, links) — do NOT send HTML. " +
+        "Mentions: @[label](mnemon:<entryId>). Images: ![caption](asset:<assetId>@<campaignId>) — upload the asset first; inline base64 / data: URLs are not accepted. " +
+        "Node addressing: get body-node ids from get_mnemon, then target them in replace/remove/insertAfter. A single op's Markdown may produce several nodes; new nodes get fresh server-generated ids (replace keeps the original id on the first new node). " +
+        "On a bad op (missing blockId, unknown op, etc.) the whole entry's batch is rejected with the failedOpIndex; no partial mutation per entry. See describe_mnemon_types.blockOps for the full vocabulary.",
       inputSchema: updateMnemonsContentInputSchema.shape,
       outputSchema: mnemonBulkResponseOutputSchema,
       annotations: WRITE_SAFE,
@@ -866,14 +876,17 @@ export function createServer(): McpServer {
     {
       description:
         "Create a relationship between two mnemon entries. " +
-        "All 7 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
+        "All 10 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
         "ENEMY (directional), RIVAL (directional), " +
         "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
         "e.g. Region → City → District → Tavern), " +
-        "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS). " +
+        "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS), " +
+        "HAS_SUBQUEST (Quest → subquest Quest), QUEST_RELATED_NPC (Quest → NPC), " +
+        "QUEST_RELATED_LOCATION (Quest → Location). " +
         "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — direction matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
-        "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself.",
+        "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
+        "for quest links prefer subQuestEntryIds / relatedNpcEntryIds / relatedLocationEntryIds on the quest.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
       outputSchema: relationshipOutputSchema,
       annotations: WRITE_SAFE,
@@ -972,7 +985,7 @@ export function createServer(): McpServer {
         "Owner-only on the backend.",
       inputSchema: updateSessionInputSchema.shape,
       outputSchema: campaignSessionOutputSchema,
-      annotations: WRITE_SAFE,
+      annotations: WRITE_IDEMPOTENT,
       _meta: WRITE_META,
     },
     (input) =>
@@ -1130,7 +1143,7 @@ export function createServer(): McpServer {
         "Note that promoting another user to Owner transfers the guild — confirm with the user first.",
       inputSchema: setGuildMemberRoleInputSchema.shape,
       outputSchema: guildRoleMutationOutputSchema,
-      annotations: WRITE_SAFE,
+      annotations: WRITE_IDEMPOTENT,
       _meta: GUILD_ADMIN_META,
     },
     (input) =>

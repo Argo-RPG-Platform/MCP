@@ -137,8 +137,9 @@ export function buildLlmsTxt(opts: { mcpBase: string; oauthBase: string }): stri
 ## Capabilities
 - Campaigns: list, get, create, update; co-GM management.
 - Mnemons (lore, NPCs, locations, quests, journals, archives, session summaries,
-  player, custom): full CRUD plus relationship edges (MEMBER, ALLY, ENEMY,
-  RIVAL, PARENT_OF, CONTAINS, LOCATED_IN).
+  player, custom): create, read, and update (deletion stays in the WebApp), plus
+  relationship edges (MEMBER, ALLY, ENEMY, RIVAL, PARENT_OF, CONTAINS,
+  LOCATED_IN, HAS_SUBQUEST, QUEST_RELATED_NPC, QUEST_RELATED_LOCATION).
 - Sessions: list, get, create, update (calendar / scheduling).
 - Guilds: members, roles, calendar events, campaign linking.
 - Social: friends, friend requests, email invitations.
