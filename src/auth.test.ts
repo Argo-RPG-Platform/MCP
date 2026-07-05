@@ -9,9 +9,11 @@ import {
   getRefreshToken,
   getToken,
   loadToken,
+  runWithToken,
+  setToken,
   _resetTokenStateForTests,
 } from "./auth.js";
-import { saveStoredTokens } from "./tokenStore.js";
+import { loadStoredTokens, saveStoredTokens } from "./tokenStore.js";
 
 let tempDir: string;
 const ORIGINAL_OAUTH_TOKEN = process.env.OAUTH_TOKEN;
@@ -74,5 +76,46 @@ describe("loadToken", () => {
       expect((err as Error).message).toContain("argo-mcp auth login");
       expect((err as Error).message).toContain("https://mcp.argo.games/mcp");
     }
+  });
+});
+
+describe("setToken", () => {
+  it("writes through to the shared ctx object inside runWithToken (HTTP mode)", () => {
+    // Session caches in http.ts hold this exact object; a refresh must update
+    // it, or the next request retries with the already-spent refresh token.
+    const session = { token: "old-access", refreshToken: "old-refresh" };
+    runWithToken(session, () => {
+      setToken("new-access", "new-refresh");
+      expect(getToken()).toBe("new-access");
+      expect(getRefreshToken()).toBe("new-refresh");
+    });
+    expect(session.token).toBe("new-access");
+    expect(session.refreshToken).toBe("new-refresh");
+  });
+
+  it("keeps the previous refresh token when the refresh response omits one", () => {
+    const session = { token: "old-access", refreshToken: "keep-me" };
+    runWithToken(session, () => setToken("new-access"));
+    expect(session.token).toBe("new-access");
+    expect(session.refreshToken).toBe("keep-me");
+  });
+
+  it("persists rotated tokens to the store in stdio mode when loaded from the store", () => {
+    saveStoredTokens({ access: "stored-access", refresh: "stored-refresh" });
+    loadToken();
+    setToken("rotated-access", "rotated-refresh");
+    expect(loadStoredTokens()).toMatchObject({
+      access: "rotated-access",
+      refresh: "rotated-refresh",
+    });
+  });
+
+  it("does not write env-supplied tokens to the store in stdio mode", () => {
+    process.env.OAUTH_TOKEN = "env-access";
+    process.env.REFRESH_TOKEN = "env-refresh";
+    loadToken();
+    setToken("rotated-access", "rotated-refresh");
+    expect(loadStoredTokens()).toBeNull();
+    expect(getToken()).toBe("rotated-access");
   });
 });

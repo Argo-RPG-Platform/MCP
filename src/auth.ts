@@ -16,9 +16,9 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { loadStoredTokens } from "./tokenStore.js";
+import { loadStoredTokens, saveStoredTokens } from "./tokenStore.js";
 
-interface TokenCtx {
+export interface TokenCtx {
   token: string;
   refreshToken: string | null;
 }
@@ -28,6 +28,10 @@ const _httpCtx = new AsyncLocalStorage<TokenCtx>();
 // stdio-mode globals
 let _token: string | null = null;
 let _refreshToken: string | null = null;
+// Whether the stdio tokens came from the local token store (vs env vars).
+// Refreshed tokens are persisted back only in that case — env-supplied tokens
+// are the caller's responsibility.
+let _fromStore = false;
 
 export const AUTH_REQUIRED_MESSAGE =
   "Argo MCP is not signed in.\n" +
@@ -63,6 +67,7 @@ export function loadToken(): void {
   if (envToken) {
     _token = envToken;
     _refreshToken = process.env.REFRESH_TOKEN ?? null;
+    _fromStore = false;
     return;
   }
 
@@ -70,6 +75,7 @@ export function loadToken(): void {
   if (stored) {
     _token = stored.access;
     _refreshToken = stored.refresh;
+    _fromStore = true;
     return;
   }
 
@@ -82,18 +88,22 @@ export function loadToken(): void {
 export function _resetTokenStateForTests(): void {
   _token = null;
   _refreshToken = null;
+  _fromStore = false;
 }
 
 /**
  * Run fn with a per-request token context (HTTP mode).
  * All async calls within fn — including tool handlers — see this token.
+ *
+ * The ctx object is stored (not copied), so a mid-request token refresh via
+ * setToken() writes through to whatever the caller keeps a reference to —
+ * in practice the per-session token cache in http.ts. Without that
+ * write-through, a rotated (single-use) refresh token would be consumed on
+ * the first 401 and every later request in the session would retry the
+ * refresh with the already-spent token and fail.
  */
-export function runWithToken<T>(
-  token: string,
-  refreshToken: string | null,
-  fn: () => T
-): T {
-  return _httpCtx.run({ token, refreshToken }, fn);
+export function runWithToken<T>(ctx: TokenCtx, fn: () => T): T {
+  return _httpCtx.run(ctx, fn);
 }
 
 /**
@@ -129,6 +139,14 @@ export function setToken(newAccessToken: string, newRefreshToken?: string): void
   }
   _token = newAccessToken;
   if (newRefreshToken) _refreshToken = newRefreshToken;
-  // TODO: persist refreshed tokens to disk via saveStoredTokens() when in stdio
-  // mode and the original token came from the local token store.
+  // Persist rotated tokens so the next process start doesn't retry the
+  // refresh with an already-consumed refresh token. Env-supplied tokens are
+  // never written to disk.
+  if (_fromStore) {
+    try {
+      saveStoredTokens({ access: _token, refresh: _refreshToken });
+    } catch {
+      // Best-effort — a read-only config dir must not break the live session.
+    }
+  }
 }

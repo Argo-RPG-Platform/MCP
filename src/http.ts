@@ -211,7 +211,10 @@ const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
 
 export async function startHttpServer(): Promise<void> {
   const app = express();
-  app.use(express.json());
+  // Explicit body cap: the bulk mnemon tools accept 50 items of Markdown per
+  // call, which routinely exceeds Express's 100kb default and would surface
+  // as an HTML 413 instead of a JSON-RPC error.
+  app.use(express.json({ limit: "4mb" }));
 
   // ---------------------------------------------------------------------------
   // Streamable HTTP transport (Claude Code, Codex)
@@ -298,7 +301,10 @@ export async function startHttpServer(): Promise<void> {
       const t = transport;
       const handle = () => t.handleRequest(req, res, req.body);
       if (tokens) {
-        await runWithToken(tokens.token, tokens.refreshToken, handle);
+        // Pass the session-cached object itself: a mid-request refresh in
+        // setToken() then updates the cache, so the rotated refresh token is
+        // not re-spent on the next request.
+        await runWithToken(tokens, handle);
       } else {
         await handle();
       }
@@ -331,7 +337,7 @@ export async function startHttpServer(): Promise<void> {
     try {
       const handle = () => transport.handleRequest(req, res);
       if (tokens) {
-        await runWithToken(tokens.token, tokens.refreshToken, handle);
+        await runWithToken(tokens, handle);
       } else {
         await handle();
       }
@@ -492,7 +498,7 @@ export async function startHttpServer(): Promise<void> {
 
       const handle = () => transport.handlePostMessage(req, res, req.body);
       if (tokens) {
-        await runWithToken(tokens.token, tokens.refreshToken, handle);
+        await runWithToken(tokens, handle);
       } else {
         await handle();
       }
@@ -539,12 +545,24 @@ export async function startHttpServer(): Promise<void> {
   // cost MCP CPU + log volume. Keep them out at the edge.
   const dcrCounters = new Map<string, { count: number; windowStart: number }>();
   const dcrIdentifier = (req: express.Request): string => {
+    // Cloud Run's front end APPENDS the connecting client's IP to
+    // X-Forwarded-For; any earlier entries arrived from the client and are
+    // trivially spoofable. Keying the rate limit on the first entry would let
+    // a bot mint a fresh identity per request, so trust only the last hop.
     const xff = (req.headers["x-forwarded-for"] as string | undefined) ?? "";
-    const first = xff.split(",")[0]?.trim();
-    return first || req.socket.remoteAddress || "unknown";
+    const hops = xff.split(",").map((h) => h.trim()).filter(Boolean);
+    const last = hops[hops.length - 1];
+    return last || req.socket.remoteAddress || "unknown";
   };
   const dcrAllow = (id: string): boolean => {
     const now = Date.now();
+    // Lazy prune: without this the map grows one entry per distinct client
+    // IP forever (spoofed-XFF churn used to make that unbounded).
+    if (dcrCounters.size > 64) {
+      for (const [key, e] of dcrCounters) {
+        if (now - e.windowStart >= DCR_RATE_LIMIT_WINDOW_MS) dcrCounters.delete(key);
+      }
+    }
     const entry = dcrCounters.get(id);
     if (!entry || now - entry.windowStart >= DCR_RATE_LIMIT_WINDOW_MS) {
       dcrCounters.set(id, { count: 1, windowStart: now });
@@ -572,12 +590,11 @@ export async function startHttpServer(): Promise<void> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Forward client IP so WebAPI's per-IP rate limiter sees the real
-          // caller, not the MCP service's egress address.
-          "X-Forwarded-For":
-            (req.headers["x-forwarded-for"] as string | undefined) ??
-            req.socket.remoteAddress ??
-            "",
+          // Forward the VERIFIED client IP (last XFF hop) so WebAPI's per-IP
+          // rate limiter sees the real caller — forwarding the raw header
+          // verbatim would relay client-spoofed entries and let a bot bypass
+          // WebAPI's limiter the same way it could bypass ours.
+          "X-Forwarded-For": requesterId === "unknown" ? "" : requesterId,
         },
         body: JSON.stringify(req.body ?? {}),
       });
