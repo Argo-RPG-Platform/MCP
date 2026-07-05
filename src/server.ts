@@ -50,6 +50,8 @@ import {
   createQuestMnemonsInputSchema,
   createSessionSummaryMnemons,
   createSessionSummaryMnemonsInputSchema,
+  deleteMnemon,
+  deleteMnemonInputSchema,
   deleteMnemonRelationship,
   deleteMnemonRelationshipInputSchema,
   describeMnemonTypes,
@@ -64,9 +66,12 @@ import {
   listMnemonRelationshipsInputSchema,
   mnemonBulkResponseOutputSchema,
   mnemonEntryOutputSchema,
+  mnemonSearchHitOutputSchema,
   mnemonSummaryOutputSchema,
   relationshipOutputSchema,
   relationshipsResponseOutputSchema,
+  searchMnemons,
+  searchMnemonsInputSchema,
   updateArchiveMnemons,
   updateArchiveMnemonsInputSchema,
   updateCustomMnemons,
@@ -89,6 +94,7 @@ import {
   updateSessionSummaryMnemonsInputSchema,
   type MnemonBulkResponse,
   type MnemonListPage,
+  type MnemonSearchResponse,
   type MnemonSummary,
   type Relationship,
   type RelationshipsResponse,
@@ -327,6 +333,12 @@ const mnemonListOutputSchema = z.object({
   nextOffset: z.number().optional(),
 });
 
+const mnemonSearchOutputSchema = z.object({
+  results: z.array(mnemonSearchHitOutputSchema),
+  idMap: z.record(z.string()),
+  hasMore: z.boolean(),
+});
+
 const coGmListOutputSchema = z.object({
   items: z.array(coGmOutputSchema),
 });
@@ -355,6 +367,11 @@ const removeCoGmOutputSchema = successOutputSchema.extend({
 const deleteRelationshipOutputSchema = successOutputSchema.extend({
   campaignId: z.string(),
   relationshipId: z.string(),
+});
+
+const deleteMnemonOutputSchema = successOutputSchema.extend({
+  campaignId: z.string(),
+  entryId: z.string(),
 });
 
 const guildMutationOutputSchema = successOutputSchema.extend({
@@ -425,6 +442,20 @@ function fmtBulkResponse(resp: MnemonBulkResponse, verb: string): ToolResult {
 function fmtMnemons(entries: MnemonSummary[]): string {
   const lines = entries.map((e) => `• ${e.title} [${e.type}]  [id: ${e.entryId}]`);
   return `${entries.length} entry(ies):\n${lines.join("\n")}`;
+}
+
+function fmtSearchHits(resp: MnemonSearchResponse): string {
+  const lines = resp.results.map((hit) => {
+    const head = `• ${hit.title} [${hit.type}] — matched ${hit.matchedIn.join(", ")}  [id: ${hit.entryId}]`;
+    const snippets = hit.snippets.map(
+      (s) => `    ↳ ${s.blockId ? `[block: ${s.blockId}] ` : ""}${s.text}`
+    );
+    return [head, ...snippets].join("\n");
+  });
+  const more = resp.hasMore
+    ? "\nMore matches exist — narrow the query or raise the limit."
+    : "";
+  return `${resp.results.length} result(s):\n${lines.join("\n")}${more}`;
 }
 
 export function createServer(): McpServer {
@@ -694,7 +725,8 @@ export function createServer(): McpServer {
       description:
         "List mnemon (lore/memory) entries for an Argo campaign. " +
         "Optional filters: `title` (case-insensitive substring on entry title only) and " +
-        "`type` (e.g. NPC, Location, Quest). Returns up to `limit` entries (default 100); " +
+        "`type` (e.g. NPC, Location, Quest). To find entries by what they CONTAIN, use " +
+        "search_mnemons instead. Returns up to `limit` entries (default 100); " +
         "when `hasMore` is true, call again with `offset` = the returned `nextOffset` to " +
         "fetch the next page. " +
         "Each entry includes both `title` and `entryId` (shown inline as `[id: …]` and in " +
@@ -720,6 +752,38 @@ export function createServer(): McpServer {
             idMap: buildIdMap(page.entries.map((e) => [`${e.title}|${e.type}`, e.entryId])),
             hasMore: page.hasMore,
             ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
+          }
+        )
+      )
+  );
+
+  server.registerTool(
+    "search_mnemons",
+    {
+      description:
+        "Full-text search across mnemon titles, tags, and body content (case-insensitive " +
+        "substring). Prefer this over list_mnemons when looking for entries by what they " +
+        "contain — e.g. \"what do we know about the Red Oracle?\". Each hit reports which " +
+        "fields matched (title/tags/content) and up to 3 body snippets; a snippet's blockId " +
+        "is the same block id get_mnemon returns, so you can target the matched block " +
+        "directly in update_mnemons_content. Only content visible to the current user is " +
+        "searched. Returns at most `limit` hits (default 20, max 50) plus `hasMore`.",
+      inputSchema: searchMnemonsInputSchema.shape,
+      outputSchema: mnemonSearchOutputSchema,
+      annotations: READ_ONLY,
+      _meta: READ_META,
+    },
+    (input) =>
+      runTool(
+        () => searchMnemons(input),
+        (resp: MnemonSearchResponse) => withStructuredContent(
+          resp.results.length === 0
+            ? `No mnemons match ${JSON.stringify(input.query)}.`
+            : fmtSearchHits(resp),
+          {
+            results: resp.results,
+            idMap: buildIdMap(resp.results.map((h) => [`${h.title}|${h.type}`, h.entryId])),
+            hasMore: resp.hasMore,
           }
         )
       )
@@ -949,6 +1013,29 @@ export function createServer(): McpServer {
           success: true as const,
           campaignId: input.campaignId,
           relationshipId: input.relationshipId,
+        })
+      )
+  );
+
+  server.registerTool(
+    "delete_mnemon",
+    {
+      description:
+        "Permanently delete a mnemon entry and every relationship that touches it. " +
+        "GM-only on the backend. This cannot be undone — confirm with the user before " +
+        "calling. entryId accepts a hex id or an exact title.",
+      inputSchema: deleteMnemonInputSchema.shape,
+      outputSchema: deleteMnemonOutputSchema,
+      annotations: WRITE_DESTRUCTIVE,
+      _meta: WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => deleteMnemon(input),
+        (hexId: string) => withStructuredContent("Deleted mnemon entry.", {
+          success: true as const,
+          campaignId: input.campaignId,
+          entryId: hexId,
         })
       )
   );
