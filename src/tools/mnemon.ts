@@ -387,6 +387,84 @@ export async function getMnemon(
 }
 
 // ---------------------------------------------------------------------------
+// Search — full-text over title, tags, and body content
+// ---------------------------------------------------------------------------
+
+export const searchMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1).describe("ID of the campaign."),
+  query: z
+    .string()
+    .min(2)
+    .describe("Text to find (case-insensitive substring) in mnemon titles, tags, and body content."),
+  type: z.string().optional().describe("Mnemon type filter (NPC, Location, Quest, …)."),
+  limit: z.number().int().min(1).max(50).optional().describe("Maximum results (default 20)."),
+});
+
+export interface MnemonSearchSnippet {
+  blockId?: string;
+  text: string;
+}
+
+export interface MnemonSearchHit {
+  entryId: string;
+  title: string;
+  type: string;
+  matchedIn: string[];
+  snippets: MnemonSearchSnippet[];
+}
+
+export interface MnemonSearchResponse {
+  results: MnemonSearchHit[];
+  hasMore: boolean;
+}
+
+export const mnemonSearchSnippetOutputSchema = z.object({
+  blockId: z.string().optional(),
+  text: z.string(),
+});
+
+export const mnemonSearchHitOutputSchema = z.object({
+  entryId: z.string(),
+  title: z.string(),
+  type: z.string(),
+  matchedIn: z.array(z.string()),
+  snippets: z.array(mnemonSearchSnippetOutputSchema),
+});
+
+export async function searchMnemons(
+  input: z.infer<typeof searchMnemonsInputSchema>
+): Promise<MnemonSearchResponse> {
+  const params = new URLSearchParams();
+  params.set("q", input.query);
+  if (input.type) params.set("type", input.type);
+  if (input.limit !== undefined) params.set("limit", String(input.limit));
+  return argoGet<MnemonSearchResponse>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/search?${params.toString()}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delete — single entry, GM-only on the backend
+// ---------------------------------------------------------------------------
+
+export const deleteMnemonInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  entryId: z.string().min(1).describe("Mnemon entry ID (hex) or exact title."),
+});
+
+/** Deletes the entry and returns the resolved hex id it was addressed by. */
+export async function deleteMnemon(
+  input: z.infer<typeof deleteMnemonInputSchema>
+): Promise<string> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const hex = await resolver.resolve(input.entryId, { fieldLabel: "entryId" });
+  await argoDelete(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(hex)}`
+  );
+  return hex;
+}
+
+// ---------------------------------------------------------------------------
 // Shared block-input shape (used by all create_*_mnemons tools)
 // ---------------------------------------------------------------------------
 

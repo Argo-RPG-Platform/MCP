@@ -48,11 +48,40 @@ describe("MCP server output schemas", () => {
     ]);
   });
 
-  it("advertises outputSchema for all 61 tools", async () => {
+  it("advertises outputSchema for all 63 tools", async () => {
     const result = await client.listTools();
 
-    expect(result.tools).toHaveLength(61);
+    expect(result.tools).toHaveLength(63);
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
+  });
+
+  it("returns formatted hits with block-addressed snippets from search_mnemons", async () => {
+    argoGet.mockResolvedValueOnce({
+      results: [
+        {
+          entryId: "A".repeat(32),
+          title: "Red Oracle",
+          type: "NPC",
+          matchedIn: ["title", "content"],
+          snippets: [{ blockId: "b1", text: "…dwells beneath Black Harbor…" }],
+        },
+      ],
+      hasMore: false,
+    });
+
+    const result = await client.callTool({
+      name: "search_mnemons",
+      arguments: { campaignId: "camp-1", query: "oracle" },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      results: [expect.objectContaining({ entryId: "A".repeat(32), title: "Red Oracle" })],
+      idMap: { "Red Oracle|NPC": "A".repeat(32) },
+      hasMore: false,
+    });
+    const text = textAt(result) ?? "";
+    expect(text).toContain("matched title, content");
+    expect(text).toContain("[block: b1]");
   });
 
   it("describes update_mnemons_content as markdown-authored ops", async () => {

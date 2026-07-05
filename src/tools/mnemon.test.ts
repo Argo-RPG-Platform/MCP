@@ -14,9 +14,11 @@ import {
   createQuestMnemons,
   createQuestMnemonsInputSchema,
   createPlayerMnemons,
+  deleteMnemon,
   describeMnemonTypes,
   describeMnemonTypesOutputSchema,
   listMnemons,
+  searchMnemons,
   updateNpcMnemons,
   updateMnemonsContent,
   type MnemonSummary,
@@ -26,6 +28,7 @@ import * as client from "../client.js";
 const argoPost = vi.mocked(client.argoPost);
 const argoPatch = vi.mocked(client.argoPatch);
 const argoGet = vi.mocked(client.argoGet);
+const argoDelete = vi.mocked(client.argoDelete);
 
 const CAMPAIGN = "camp-123";
 const ENTRY = "AAAA0000AAAA0000AAAA0000AAAA0000";
@@ -140,6 +143,65 @@ describe("listMnemons", () => {
     const result = await listMnemons({ campaignId: CAMPAIGN, offset: 50 });
     expect(result.entries).toHaveLength(0);
     expect(result.hasMore).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchMnemons
+// ---------------------------------------------------------------------------
+
+describe("searchMnemons", () => {
+  it("GETs /mnemons/search with q, type, and limit", async () => {
+    argoGet.mockResolvedValueOnce({ results: [], hasMore: false });
+    await searchMnemons({ campaignId: CAMPAIGN, query: "red oracle", type: "NPC", limit: 5 });
+    expect(argoGet).toHaveBeenCalledWith(
+      `/mcp/v1/campaigns/${CAMPAIGN}/mnemons/search?q=red+oracle&type=NPC&limit=5`
+    );
+  });
+
+  it("omits optional params when not provided", async () => {
+    argoGet.mockResolvedValueOnce({ results: [], hasMore: false });
+    await searchMnemons({ campaignId: CAMPAIGN, query: "oracle" });
+    expect(argoGet).toHaveBeenCalledWith(
+      `/mcp/v1/campaigns/${CAMPAIGN}/mnemons/search?q=oracle`
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteMnemon
+// ---------------------------------------------------------------------------
+
+describe("deleteMnemon", () => {
+  it("DELETEs by hex id without listing", async () => {
+    argoDelete.mockResolvedValueOnce(undefined);
+    const hex = await deleteMnemon({ campaignId: CAMPAIGN, entryId: ENTRY });
+    expect(hex).toBe(ENTRY);
+    expect(argoGet).not.toHaveBeenCalled();
+    expect(argoDelete).toHaveBeenCalledWith(
+      `/mcp/v1/campaigns/${CAMPAIGN}/mnemons/${ENTRY}`
+    );
+  });
+
+  it("resolves a title to its hex id before deleting", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: NPC_HEX, title: "Goblin", type: "NPC" }]);
+    argoDelete.mockResolvedValueOnce(undefined);
+    const hex = await deleteMnemon({ campaignId: CAMPAIGN, entryId: "Goblin" });
+    expect(hex).toBe(NPC_HEX);
+    expect(argoDelete).toHaveBeenCalledWith(
+      `/mcp/v1/campaigns/${CAMPAIGN}/mnemons/${NPC_HEX}`
+    );
+  });
+
+  it("does not delete when the title is ambiguous", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "Goblin", type: "NPC" },
+      { entryId: LOC_HEX, title: "Goblin", type: "NPC" },
+    ]);
+    await expect(deleteMnemon({ campaignId: CAMPAIGN, entryId: "Goblin" })).rejects.toThrow(
+      /matches 2 mnemons/
+    );
+    expect(argoDelete).not.toHaveBeenCalled();
   });
 });
 
