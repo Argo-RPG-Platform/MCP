@@ -55,6 +55,30 @@ describe("MCP server output schemas", () => {
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
   });
 
+  it("describes update_mnemons_content as markdown-authored ops", async () => {
+    const result = await client.listTools();
+    const tool = result.tools.find((t) => t.name === "update_mnemons_content")!;
+
+    // The input schema is markdown-based ops; the description must not drift
+    // back to the pre-markdown HTML/blockType vocabulary (regression: PR #53
+    // migrated the schema but left the old description in place).
+    expect(tool.description).toMatch(/Markdown/);
+    expect(tool.description).not.toMatch(/blockType/);
+  });
+
+  it("describes create_mnemon_relationship with every registered label", async () => {
+    const result = await client.listTools();
+    const tool = result.tools.find((t) => t.name === "create_mnemon_relationship")!;
+    const catalog = (await client.callTool({
+      name: "describe_mnemon_types",
+      arguments: {},
+    })).structuredContent as { relationshipLabels: string[] };
+
+    for (const label of catalog.relationshipLabels) {
+      expect(tool.description).toContain(label);
+    }
+  });
+
   it("returns structuredContent for a typed read tool", async () => {
     argoGet.mockResolvedValueOnce({
       id: "camp-1",

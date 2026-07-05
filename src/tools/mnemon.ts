@@ -174,6 +174,19 @@ export const describeMnemonTypesOutputSchema = z.object({
     description: z.string(),
   })),
   idReferences: z.string(),
+  questBody: z.object({
+    summary: z.string(),
+    step: z.object({
+      fields: z.array(z.string()),
+      stepIdNotes: z.string(),
+      statusValues: z.array(z.string()),
+      statusDefault: z.string(),
+    }),
+    reward: z.object({
+      fields: z.array(z.string()),
+      linkedStepIdsNotes: z.string(),
+    }),
+  }),
 });
 
 // ---------------------------------------------------------------------------

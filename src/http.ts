@@ -25,6 +25,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
 import { isJwtValidationEnabled, JwtValidationError, validateBearer } from "./jwt.js";
+import { VERSION } from "./version.js";
 import {
   buildLlmsTxt,
   buildManifest,
@@ -676,7 +677,7 @@ export async function startHttpServer(): Promise<void> {
     res.set("Cache-Control", DISCOVERY_CACHE_CONTROL);
     res.json({
       name: "argo",
-      version: "1.0.0",
+      version: VERSION,
       description:
         "Access your Argo campaigns from Gemini — read and write campaign lore, " +
         "characters, quests, and locations.",
