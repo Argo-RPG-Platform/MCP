@@ -206,6 +206,10 @@ const RELATIONSHIP_LABELS = [
   "HAS_SUBQUEST",
   "QUEST_RELATED_NPC",
   "QUEST_RELATED_LOCATION",
+  "SESSION_ATTENDEE_CHARACTER",
+  "SESSION_ATTENDEE_NPC",
+  "SESSION_FEATURED_QUEST",
+  "SESSION_FEATURED_LOCATION",
 ] as const;
 
 const RELATIONSHIP_MATRIX: ReadonlyArray<{
@@ -226,6 +230,10 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Hierarchical (direction=parent). Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
+  { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the CHARACTER-kind Player mnemon, not the character sheet. Stored label: 'Attendee'." },
+  { source: "SessionSummary", label: "SESSION_ATTENDEE_NPC", target: "NPC", description: "An NPC appeared in this session. Stored label: 'NPC Present'." },
+  { source: "SessionSummary", label: "SESSION_FEATURED_QUEST", target: "Quest", description: "This session advanced or featured the quest. Stored label: 'Featured Quest'." },
+  { source: "SessionSummary", label: "SESSION_FEATURED_LOCATION", target: "Location", description: "This session took place at or featured the location. Stored label: 'Featured Location'." },
 ];
 
 export function describeMnemonTypes(): object {
@@ -740,14 +748,57 @@ export async function createJournalMnemons(
 }
 
 // --- SessionSummary ---
+
+/**
+ * Narrative fields authored by the AthenaLLM summary pass in the Unreal client;
+ * a GM may edit any of them afterwards. Shared by the create and update schemas.
+ *
+ * Note what is absent: attendees and featured quests/locations used to be id
+ * arrays here. They are relationships now, so link them with
+ * create_mnemon_relationship using SESSION_ATTENDEE_CHARACTER,
+ * SESSION_ATTENDEE_NPC, SESSION_FEATURED_QUEST, or SESSION_FEATURED_LOCATION.
+ */
+const sessionSummaryNarrative = {
+  suggestedTitle: z.string().optional().describe("Short evocative title for the session, like a TV episode title."),
+  oneSentenceSummary: z.string().optional().describe("Single-sentence TL;DR of what happened."),
+  detailedSummary: z.string().optional().describe("Full narrative summary, 3-5 paragraphs."),
+  previouslyOn: z.string().optional().describe("Where each player ended — read aloud at the top of the next session."),
+  partyEndState: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe("Character display name -> short end-of-session status line."),
+  majorEvents: stringArray().describe("Significant story beats, in chronological order."),
+  partyDecisions: stringArray().describe("Meaningful choices that will shape future sessions."),
+  openThreads: stringArray().describe("Unresolved threads and cliffhangers as of session end."),
+  loot: stringArray().describe("Items, treasure, or rewards acquired."),
+  npcsMentioned: z
+    .array(
+      z.object({
+        name: z.string().min(1).describe('Name as referenced in the session, e.g. "Captain Mira".'),
+        role: z.string().optional().describe('Role played this session, e.g. "quest-giver", "rescued captive".'),
+      })
+    )
+    .optional()
+    .describe(
+      "NPCs that appeared or were referenced. This is descriptive only — to link one to an " +
+        "existing NPC mnemon, call create_mnemon_relationship with SESSION_ATTENDEE_NPC."
+    ),
+  combats: z
+    .array(
+      z.object({
+        description: z.string().min(1).describe("Who fought whom and where, in one sentence."),
+        outcome: z.string().optional().describe('How it resolved, e.g. "party victorious, no casualties".'),
+      })
+    )
+    .optional()
+    .describe("Combat encounters that took place this session."),
+};
+
 const createSessionSummaryItemSchema = z.object({
   ...createCommon,
   date: z.string().optional(),
   sessionNumber: z.number().int().optional(),
-  attendeeCharacterIds: stringArray(),
-  attendeeNpcEntryIds: stringArray(),
-  linkedQuestEntryIds: stringArray(),
-  linkedLocationEntryIds: stringArray(),
+  ...sessionSummaryNarrative,
 });
 
 export const createSessionSummaryMnemonsInputSchema = z.object({
@@ -758,19 +809,11 @@ export const createSessionSummaryMnemonsInputSchema = z.object({
 export async function createSessionSummaryMnemons(
   input: z.infer<typeof createSessionSummaryMnemonsInputSchema>
 ): Promise<MnemonBulkResponse> {
-  const resolver = new MnemonResolver(input.campaignId);
-  const items = [];
-  for (const it of input.items) {
-    items.push({
-      ...it,
-      attendeeNpcEntryIds: await resolver.resolveArray(it.attendeeNpcEntryIds, { type: "NPC", fieldLabel: "attendeeNpcEntryIds" }),
-      linkedQuestEntryIds: await resolver.resolveArray(it.linkedQuestEntryIds, { type: "Quest", fieldLabel: "linkedQuestEntryIds" }),
-      linkedLocationEntryIds: await resolver.resolveArray(it.linkedLocationEntryIds, { type: "Location", fieldLabel: "linkedLocationEntryIds" }),
-    });
-  }
-  return argoPost<MnemonBulkResponse, { items: typeof items }>(
+  // No resolver pass: this payload no longer carries any mnemon reference. The
+  // links moved to the relationship graph.
+  return argoPost<MnemonBulkResponse, { items: typeof input.items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/session-summary`,
-    { items }
+    { items: input.items }
   );
 }
 
@@ -1023,10 +1066,7 @@ const updateSessionSummaryItemSchema = z.object({
   ...updateCommon,
   date: z.string().optional(),
   sessionNumber: z.number().int().optional(),
-  attendeeCharacterIds: stringArray(),
-  attendeeNpcEntryIds: stringArray(),
-  linkedQuestEntryIds: stringArray(),
-  linkedLocationEntryIds: stringArray(),
+  ...sessionSummaryNarrative,
 });
 export const updateSessionSummaryMnemonsInputSchema = z.object({
   campaignId: z.string().min(1),
@@ -1040,10 +1080,9 @@ export async function updateSessionSummaryMnemons(
   for (const it of input.items) {
     items.push({
       ...it,
+      // entryId still resolves, so callers may address the summary by title. The
+      // former id arrays are gone — those links live in the relationship graph.
       entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
-      attendeeNpcEntryIds: await resolver.resolveArray(it.attendeeNpcEntryIds, { type: "NPC", fieldLabel: "attendeeNpcEntryIds" }),
-      linkedQuestEntryIds: await resolver.resolveArray(it.linkedQuestEntryIds, { type: "Quest", fieldLabel: "linkedQuestEntryIds" }),
-      linkedLocationEntryIds: await resolver.resolveArray(it.linkedLocationEntryIds, { type: "Location", fieldLabel: "linkedLocationEntryIds" }),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
