@@ -974,17 +974,22 @@ export function createServer(): McpServer {
     {
       description:
         "Create a relationship between two mnemon entries. " +
-        "All 10 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
+        "All 14 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
         "ENEMY (directional), RIVAL (directional), " +
         "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
         "e.g. Region → City → District → Tavern), " +
         "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS), " +
         "HAS_SUBQUEST (Quest → subquest Quest), QUEST_RELATED_NPC (Quest → NPC), " +
-        "QUEST_RELATED_LOCATION (Quest → Location). " +
+        "QUEST_RELATED_LOCATION (Quest → Location), " +
+        "SESSION_ATTENDEE_CHARACTER (SessionSummary → CHARACTER-kind Player), " +
+        "SESSION_ATTENDEE_NPC (SessionSummary → NPC), " +
+        "SESSION_FEATURED_QUEST (SessionSummary → Quest), " +
+        "SESSION_FEATURED_LOCATION (SessionSummary → Location). " +
         "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — direction matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
         "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
-        "for quest links prefer subQuestEntryIds / relatedNpcEntryIds / relatedLocationEntryIds on the quest.",
+        "for quest links prefer subQuestEntryIds / relatedNpcEntryIds / relatedLocationEntryIds on the quest. " +
+        "Session-summary links have no array equivalent — the SESSION_* labels are the only way to set them.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
       outputSchema: relationshipOutputSchema,
       annotations: WRITE_SAFE,
