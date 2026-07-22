@@ -657,8 +657,10 @@ export function createServer(): McpServer {
     "add_co_gm",
     {
       description:
-        "Add a user as an assistant GM (co-GM) of a campaign. Owner-only — the calling user must " +
-        "be the campaign's primary GM. Maximum 5 co-GMs per campaign.",
+        "Send a user an assistant GM (co-GM) offer for a campaign. This does NOT add them " +
+        "immediately: the target must accept the offer before they become an assistant GM. " +
+        "Owner-only — the calling user must be the campaign's primary GM. Maximum 5 co-GMs " +
+        "per campaign.",
       inputSchema: addCoGmInputSchema.shape,
       outputSchema: campaignOutputSchema,
       annotations: WRITE_SAFE,
@@ -668,7 +670,8 @@ export function createServer(): McpServer {
       runTool(
         () => addCoGm(input),
         (campaign: Campaign) => withStructuredContent(
-          `Added co-GM. Current co-GMs: ${json(campaign.coGameMasterIds ?? [])}`,
+          `Co-GM offer sent — the user becomes an assistant GM once they accept. ` +
+            `Current co-GMs: ${json(campaign.coGameMasterIds ?? [])}`,
           campaign
         )
       )
