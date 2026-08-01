@@ -262,7 +262,7 @@ See the [Argo Skills docs](https://app.argo.games/docs/skills) for the full list
 
 ## Available tools
 
-This server exposes tools across campaigns, mnemons, sessions, guilds, friends, invites, and the Argo community forum.
+This server exposes tools across campaigns, mnemons, sessions, guilds, friends, and the Argo community forum.
 
 ### Campaigns
 
@@ -304,7 +304,7 @@ This server exposes tools across campaigns, mnemons, sessions, guilds, friends, 
 - `set_guild_member_role` (`guild.admin`) changes a guild member's role
 - `add_guild_calendar_event` (`guild.admin`) adds a guild calendar event
 
-### Friends and invites
+### Friends
 
 - `list_friends` (`friends.read`) lists accepted friends
 - `list_sent_friend_requests` (`friends.read`) lists outgoing pending requests
@@ -313,7 +313,15 @@ This server exposes tools across campaigns, mnemons, sessions, guilds, friends, 
 - `accept_friend_request` (`friends.write`) accepts a request
 - `reject_friend_request` (`friends.write`) rejects a request
 - `cancel_friend_request` (`friends.write`) cancels a sent request
+
+<!-- Removed from the tool surface following MCP directory review — it sent
+     sign-up email to arbitrary addresses with no campaign or guild context.
+     Restore this line only if the tool is re-registered under the gated form
+     described in src/tools/invite.ts:
 - `invite_user_by_email` (`invite.write`) sends Argo invitation emails
+-->
+
+To bring someone into a campaign or guild, use `invite_guild_member` or `send_friend_request` — the MCP surface does not send email to addresses outside your existing Argo context.
 
 ### Forum
 
