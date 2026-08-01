@@ -55,11 +55,17 @@ describe("MCP server output schemas", () => {
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
   });
 
-  it("gives every tool a human-readable title annotation", async () => {
+  it("gives every tool a human-readable title in both spec locations", async () => {
     const { tools } = await client.listTools();
 
-    const untitled = tools.filter((tool) => !tool.annotations?.title);
-    expect(untitled.map((tool) => tool.name)).toEqual([]);
+    // Clients read the top-level `title` first and fall back to
+    // `annotations.title`; both are set from one string, so both must be
+    // present and must agree.
+    expect(tools.filter((tool) => !tool.title).map((tool) => tool.name)).toEqual([]);
+    expect(tools.filter((tool) => !tool.annotations?.title).map((tool) => tool.name)).toEqual([]);
+    expect(
+      tools.filter((tool) => tool.title !== tool.annotations?.title).map((tool) => tool.name)
+    ).toEqual([]);
   });
 
   it("does not expose invite_user_by_email", async () => {

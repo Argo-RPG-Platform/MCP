@@ -220,14 +220,16 @@ const WRITE_DESTRUCTIVE = {
   openWorldHint: false,
 };
 
-// Every tool carries a human-readable `annotations.title`; clients (Claude in
-// particular) show it instead of the snake_case tool name. The behaviour hints
-// above are shared constants, so titles are grafted on per tool here rather
+// Every tool advertises a human-readable display name, which clients show in
+// place of the snake_case tool id. It goes in two places from a single string:
+// `title` is where the current MCP spec puts it and where clients look first,
+// `annotations.title` is the older location clients fall back to. The behaviour
+// hints above are shared constants, so the title is grafted on per tool rather
 // than duplicating each hint set.
 type Annotations = { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean; idempotentHint?: boolean };
-const titled = <A extends Annotations>(annotations: A, title: string): A & { title: string } => ({
-  ...annotations,
+const named = <A extends Annotations>(title: string, annotations: A): { title: string; annotations: A & { title: string } } => ({
   title,
+  annotations: { ...annotations, title },
 });
 
 const READ_META = { securitySchemes: [{ type: "oauth2", scopes: ["campaign.read"] }] };
@@ -509,7 +511,7 @@ export function createServer(): McpServer {
         description,
         inputSchema: schema.shape,
         outputSchema: mnemonBulkResponseOutputSchema,
-        annotations: titled(WRITE_SAFE, title),
+        ...named(title, WRITE_SAFE),
         _meta: WRITE_META,
       },
       (input: z.infer<S>) =>
@@ -534,7 +536,7 @@ export function createServer(): McpServer {
         description,
         inputSchema: schema.shape,
         outputSchema: mnemonBulkResponseOutputSchema,
-        annotations: titled(WRITE_IDEMPOTENT, title),
+        ...named(title, WRITE_IDEMPOTENT),
         _meta: WRITE_META,
       },
       (input: z.infer<S>) =>
@@ -561,7 +563,7 @@ export function createServer(): McpServer {
         "do not print the raw `id` unless asked.",
       inputSchema: listCampaignsInputSchema.shape,
       outputSchema: campaignListOutputSchema,
-      annotations: titled(READ_ONLY, "List campaigns"),
+      ...named("List campaigns", READ_ONLY),
       _meta: READ_META,
     },
     () =>
@@ -586,7 +588,7 @@ export function createServer(): McpServer {
         "Retrieve details of an Argo campaign (name, description, rule system, co-GMs).",
       inputSchema: getCampaignInputSchema.shape,
       outputSchema: campaignOutputSchema,
-      annotations: titled(READ_ONLY, "Get campaign"),
+      ...named("Get campaign", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -609,7 +611,7 @@ export function createServer(): McpServer {
         "Requires the campaign.create OAuth scope, granted at consent time.",
       inputSchema: createCampaignInputSchema.shape,
       outputSchema: campaignSummaryOutputSchema,
-      annotations: titled(WRITE_SAFE, "Create campaign"),
+      ...named("Create campaign", WRITE_SAFE),
       _meta: CREATE_META,
     },
     (input) =>
@@ -635,7 +637,7 @@ export function createServer(): McpServer {
         "GMs and co-GMs can call this; rule-system swaps remain WebApp-only.",
       inputSchema: updateCampaignInputSchema.shape,
       outputSchema: campaignOutputSchema,
-      annotations: titled(WRITE_IDEMPOTENT, "Update campaign"),
+      ...named("Update campaign", WRITE_IDEMPOTENT),
       _meta: WRITE_META,
     },
     (input) =>
@@ -658,7 +660,7 @@ export function createServer(): McpServer {
       description: "List the assistant GMs (co-GMs) of a campaign.",
       inputSchema: listCoGmsInputSchema.shape,
       outputSchema: coGmListOutputSchema,
-      annotations: titled(READ_ONLY, "List co-GMs"),
+      ...named("List co-GMs", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -681,7 +683,7 @@ export function createServer(): McpServer {
         "per campaign.",
       inputSchema: addCoGmInputSchema.shape,
       outputSchema: campaignOutputSchema,
-      annotations: titled(WRITE_SAFE, "Add co-GM"),
+      ...named("Add co-GM", WRITE_SAFE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -702,7 +704,7 @@ export function createServer(): McpServer {
         "Remove a co-GM from a campaign. Owner-only or self-removal.",
       inputSchema: removeCoGmInputSchema.shape,
       outputSchema: removeCoGmOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Remove co-GM"),
+      ...named("Remove co-GM", WRITE_DESTRUCTIVE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -730,7 +732,7 @@ export function createServer(): McpServer {
         "unsure which type or label to use. NPC subtype is strictly FACTION | INDIVIDUAL.",
       inputSchema: describeMnemonTypesInputSchema.shape,
       outputSchema: describeMnemonTypesOutputSchema,
-      annotations: titled(READ_ONLY, "Describe mnemon types"),
+      ...named("Describe mnemon types", READ_ONLY),
       _meta: NO_META,
     },
     () =>
@@ -755,7 +757,7 @@ export function createServer(): McpServer {
         "refer to entries by `title` in prose to the user.",
       inputSchema: listMnemonsInputSchema.shape,
       outputSchema: mnemonListOutputSchema,
-      annotations: titled(READ_ONLY, "List mnemons"),
+      ...named("List mnemons", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -791,7 +793,7 @@ export function createServer(): McpServer {
         "searched. Returns at most `limit` hits (default 20, max 50) plus `hasMore`.",
       inputSchema: searchMnemonsInputSchema.shape,
       outputSchema: mnemonSearchOutputSchema,
-      annotations: titled(READ_ONLY, "Search mnemons"),
+      ...named("Search mnemons", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -816,7 +818,7 @@ export function createServer(): McpServer {
       description: "Get the full details of a specific mnemon entry (title, blocks, type properties).",
       inputSchema: getMnemonInputSchema.shape,
       outputSchema: mnemonEntryOutputSchema,
-      annotations: titled(READ_ONLY, "Get mnemon"),
+      ...named("Get mnemon", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -835,7 +837,7 @@ export function createServer(): McpServer {
         "Use this to find members of a faction, allies/enemies of an NPC, etc.",
       inputSchema: listMnemonRelationshipsInputSchema.shape,
       outputSchema: relationshipsResponseOutputSchema,
-      annotations: titled(READ_ONLY, "List mnemon relationships"),
+      ...named("List mnemon relationships", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -998,7 +1000,7 @@ export function createServer(): McpServer {
         "On a bad op (missing blockId, unknown op, etc.) the whole entry's batch is rejected with the failedOpIndex; no partial mutation per entry. See describe_mnemon_types.blockOps for the full vocabulary.",
       inputSchema: updateMnemonsContentInputSchema.shape,
       outputSchema: mnemonBulkResponseOutputSchema,
-      annotations: titled(WRITE_SAFE, "Update mnemon content"),
+      ...named("Update mnemon content", WRITE_SAFE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1031,7 +1033,7 @@ export function createServer(): McpServer {
         "Session-summary links have no array equivalent — the SESSION_* labels are the only way to set them.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
       outputSchema: relationshipOutputSchema,
-      annotations: titled(WRITE_SAFE, "Create mnemon relationship"),
+      ...named("Create mnemon relationship", WRITE_SAFE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1047,7 +1049,7 @@ export function createServer(): McpServer {
       description: "Delete a relationship by id.",
       inputSchema: deleteMnemonRelationshipInputSchema.shape,
       outputSchema: deleteRelationshipOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Delete mnemon relationship"),
+      ...named("Delete mnemon relationship", WRITE_DESTRUCTIVE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1070,7 +1072,7 @@ export function createServer(): McpServer {
         "calling. entryId accepts a hex id or an exact title.",
       inputSchema: deleteMnemonInputSchema.shape,
       outputSchema: deleteMnemonOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Delete mnemon"),
+      ...named("Delete mnemon", WRITE_DESTRUCTIVE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1096,7 +1098,7 @@ export function createServer(): McpServer {
         "Useful for laying out planned arcs or recurring play nights.",
       inputSchema: createSessionInputSchema.shape,
       outputSchema: campaignSessionOutputSchema,
-      annotations: titled(WRITE_SAFE, "Schedule session"),
+      ...named("Schedule session", WRITE_SAFE),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1113,7 +1115,7 @@ export function createServer(): McpServer {
         "List campaign sessions for a given month (defaults to the current month).",
       inputSchema: listSessionsInputSchema.shape,
       outputSchema: sessionListOutputSchema,
-      annotations: titled(READ_ONLY, "List sessions"),
+      ...named("List sessions", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -1132,7 +1134,7 @@ export function createServer(): McpServer {
       description: "Get details of a single campaign session.",
       inputSchema: getSessionInputSchema.shape,
       outputSchema: campaignSessionOutputSchema,
-      annotations: titled(READ_ONLY, "Get session"),
+      ...named("Get session", READ_ONLY),
       _meta: READ_META,
     },
     (input) =>
@@ -1150,7 +1152,7 @@ export function createServer(): McpServer {
         "Owner-only on the backend.",
       inputSchema: updateSessionInputSchema.shape,
       outputSchema: campaignSessionOutputSchema,
-      annotations: titled(WRITE_IDEMPOTENT, "Update session"),
+      ...named("Update session", WRITE_IDEMPOTENT),
       _meta: WRITE_META,
     },
     (input) =>
@@ -1175,7 +1177,7 @@ export function createServer(): McpServer {
         "refer to guilds by `name` in prose to the user.",
       inputSchema: listGuildsInputSchema.shape,
       outputSchema: guildListOutputSchema,
-      annotations: titled(READ_ONLY, "List guilds"),
+      ...named("List guilds", READ_ONLY),
       _meta: GUILD_READ_META,
     },
     () =>
@@ -1199,7 +1201,7 @@ export function createServer(): McpServer {
       description: "Retrieve full details of a guild (members, campaigns, calendar metadata).",
       inputSchema: getGuildInputSchema.shape,
       outputSchema: guildDetailOutputSchema,
-      annotations: titled(READ_ONLY, "Get guild"),
+      ...named("Get guild", READ_ONLY),
       _meta: GUILD_READ_META,
     },
     (input) =>
@@ -1215,7 +1217,7 @@ export function createServer(): McpServer {
       description: "List the members of a guild (id, role, status, invitedAt, joinedAt).",
       inputSchema: listGuildMembersInputSchema.shape,
       outputSchema: guildMemberListOutputSchema,
-      annotations: titled(READ_ONLY, "List guild members"),
+      ...named("List guild members", READ_ONLY),
       _meta: GUILD_READ_META,
     },
     (input) =>
@@ -1242,7 +1244,7 @@ export function createServer(): McpServer {
       outputSchema: guildMutationOutputSchema.extend({
         campaignId: z.string(),
       }),
-      annotations: titled(WRITE_SAFE, "Add campaign to guild"),
+      ...named("Add campaign to guild", WRITE_SAFE),
       _meta: GUILD_WRITE_META,
     },
     (input) =>
@@ -1266,7 +1268,7 @@ export function createServer(): McpServer {
       description: "Invite a user to join the guild. Owner/Admin only.",
       inputSchema: inviteGuildMemberInputSchema.shape,
       outputSchema: guildMemberMutationOutputSchema,
-      annotations: titled(WRITE_SAFE, "Invite guild member"),
+      ...named("Invite guild member", WRITE_SAFE),
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
@@ -1286,7 +1288,7 @@ export function createServer(): McpServer {
       description: "Remove a member from the guild. Owner/Admin only.",
       inputSchema: removeGuildMemberInputSchema.shape,
       outputSchema: guildMemberMutationOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Remove guild member"),
+      ...named("Remove guild member", WRITE_DESTRUCTIVE),
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
@@ -1308,7 +1310,7 @@ export function createServer(): McpServer {
         "Note that promoting another user to Owner transfers the guild — confirm with the user first.",
       inputSchema: setGuildMemberRoleInputSchema.shape,
       outputSchema: guildRoleMutationOutputSchema,
-      annotations: titled(WRITE_IDEMPOTENT, "Set guild member role"),
+      ...named("Set guild member role", WRITE_IDEMPOTENT),
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
@@ -1331,7 +1333,7 @@ export function createServer(): McpServer {
         "startDateTime / endDateTime are ISO-8601 (e.g. 2026-06-12T19:00:00).",
       inputSchema: addGuildCalendarEventInputSchema.shape,
       outputSchema: createdEventResponseOutputSchema,
-      annotations: titled(WRITE_SAFE, "Add guild calendar event"),
+      ...named("Add guild calendar event", WRITE_SAFE),
       _meta: GUILD_ADMIN_META,
     },
     (input) =>
@@ -1351,7 +1353,7 @@ export function createServer(): McpServer {
       description: "List the current user's accepted friends.",
       inputSchema: listFriendsInputSchema.shape,
       outputSchema: friendListOutputSchema,
-      annotations: titled(READ_ONLY, "List friends"),
+      ...named("List friends", READ_ONLY),
       _meta: FRIENDS_READ_META,
     },
     () =>
@@ -1370,7 +1372,7 @@ export function createServer(): McpServer {
       description: "List outgoing friend requests that are still pending.",
       inputSchema: listSentFriendRequestsInputSchema.shape,
       outputSchema: friendRequestListOutputSchema,
-      annotations: titled(READ_ONLY, "List sent friend requests"),
+      ...named("List sent friend requests", READ_ONLY),
       _meta: FRIENDS_READ_META,
     },
     () =>
@@ -1389,7 +1391,7 @@ export function createServer(): McpServer {
       description: "List incoming friend requests awaiting your response.",
       inputSchema: listReceivedFriendRequestsInputSchema.shape,
       outputSchema: friendRequestListOutputSchema,
-      annotations: titled(READ_ONLY, "List received friend requests"),
+      ...named("List received friend requests", READ_ONLY),
       _meta: FRIENDS_READ_META,
     },
     () =>
@@ -1408,7 +1410,7 @@ export function createServer(): McpServer {
       description: "Send a friend request to another Argo user.",
       inputSchema: sendFriendRequestInputSchema.shape,
       outputSchema: friendRequestRecordOutputSchema,
-      annotations: titled(WRITE_SAFE, "Send friend request"),
+      ...named("Send friend request", WRITE_SAFE),
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
@@ -1424,7 +1426,7 @@ export function createServer(): McpServer {
       description: "Accept an incoming friend request from the given user.",
       inputSchema: acceptFriendRequestInputSchema.shape,
       outputSchema: friendRequestRecordOutputSchema,
-      annotations: titled(WRITE_SAFE, "Accept friend request"),
+      ...named("Accept friend request", WRITE_SAFE),
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
@@ -1440,7 +1442,7 @@ export function createServer(): McpServer {
       description: "Reject an incoming friend request from the given user.",
       inputSchema: rejectFriendRequestInputSchema.shape,
       outputSchema: friendRequestRecordOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Reject friend request"),
+      ...named("Reject friend request", WRITE_DESTRUCTIVE),
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
@@ -1456,7 +1458,7 @@ export function createServer(): McpServer {
       description: "Cancel a friend request you previously sent.",
       inputSchema: cancelFriendRequestInputSchema.shape,
       outputSchema: friendRequestRecordOutputSchema,
-      annotations: titled(WRITE_DESTRUCTIVE, "Cancel friend request"),
+      ...named("Cancel friend request", WRITE_DESTRUCTIVE),
       _meta: FRIENDS_WRITE_META,
     },
     (input) =>
@@ -1516,7 +1518,7 @@ export function createServer(): McpServer {
         "you need the categoryId to create a topic.",
       inputSchema: forumListCategoriesInputSchema.shape,
       outputSchema: forumCategoriesOutputSchema,
-      annotations: titled(READ_ONLY, "List forum categories"),
+      ...named("List forum categories", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     () =>
@@ -1535,7 +1537,7 @@ export function createServer(): McpServer {
         "Use forum_list_categories to discover categories.",
       inputSchema: forumListTopicsInputSchema.shape,
       outputSchema: forumTopicListOutputSchema,
-      annotations: titled(READ_ONLY, "List forum topics"),
+      ...named("List forum topics", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     (input) =>
@@ -1551,7 +1553,7 @@ export function createServer(): McpServer {
       description: "Get the latest active topics across all forum categories.",
       inputSchema: forumGetLatestTopicsInputSchema.shape,
       outputSchema: forumTopicListOutputSchema,
-      annotations: titled(READ_ONLY, "Get latest forum topics"),
+      ...named("Get latest forum topics", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     () =>
@@ -1569,7 +1571,7 @@ export function createServer(): McpServer {
         "Post bodies are returned as plain text (HTML markup is stripped).",
       inputSchema: forumReadTopicInputSchema.shape,
       outputSchema: forumTopicDetailOutputSchema,
-      annotations: titled(READ_ONLY, "Read forum topic"),
+      ...named("Read forum topic", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     (input) =>
@@ -1588,7 +1590,7 @@ export function createServer(): McpServer {
         "Always search before creating a bug report or feature request to avoid duplicates.",
       inputSchema: forumSearchInputSchema.shape,
       outputSchema: forumSearchOutputSchema,
-      annotations: titled(READ_ONLY, "Search forum"),
+      ...named("Search forum", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     (input) =>
@@ -1604,7 +1606,7 @@ export function createServer(): McpServer {
       description: "List topics created by the current user on the forum.",
       inputSchema: forumGetUserPostsInputSchema.shape,
       outputSchema: forumTopicListOutputSchema,
-      annotations: titled(READ_ONLY, "List my forum topics"),
+      ...named("List my forum topics", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     () =>
@@ -1620,7 +1622,7 @@ export function createServer(): McpServer {
       description: "Get the current user's forum notifications (replies, mentions, likes).",
       inputSchema: forumGetNotificationsInputSchema.shape,
       outputSchema: forumNotificationsOutputSchema,
-      annotations: titled(READ_ONLY, "Get forum notifications"),
+      ...named("Get forum notifications", READ_ONLY),
       _meta: FORUM_READ_META,
     },
     () =>
@@ -1643,12 +1645,11 @@ export function createServer(): McpServer {
         "Call forum_list_categories to get the correct categoryId.",
       inputSchema: forumCreateTopicInputSchema.shape,
       outputSchema: forumPostResponseOutputSchema,
-      annotations: {
-        title: "Create forum topic",
+      ...named("Create forum topic", {
         readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: true,
-      },
+      }),
       _meta: FORUM_WRITE_META,
     },
     (input) =>
@@ -1664,12 +1665,11 @@ export function createServer(): McpServer {
       description: "Reply to an existing forum topic.",
       inputSchema: forumReplyInputSchema.shape,
       outputSchema: forumPostResponseOutputSchema,
-      annotations: {
-        title: "Reply to forum topic",
+      ...named("Reply to forum topic", {
         readOnlyHint: false,
         destructiveHint: false,
         openWorldHint: true,
-      },
+      }),
       _meta: FORUM_WRITE_META,
     },
     (input) =>
