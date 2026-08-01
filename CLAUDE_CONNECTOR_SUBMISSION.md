@@ -28,7 +28,9 @@ This document captures everything Anthropic reviewers need to verify the Argo MC
 ## OAuth scopes
 
 - Base: `openid`, `offline_access`
-- Resource: `campaign.read`, `campaign.write`, `campaign.create`, `guild.read`, `guild.write`, `guild.admin`, `friends.read`, `friends.write`, `invite.write`, `forum.read`, `forum.write`
+- Resource: `campaign.read`, `campaign.write`, `campaign.create`, `guild.read`, `guild.write`, `guild.admin`, `friends.read`, `friends.write`, `forum.read`, `forum.write`
+
+`invite.write` is no longer advertised: the only tool that used it, `invite_user_by_email`, was removed from the tool surface following directory review. Guild invitations and friend requests remain available as in-platform paths.
 
 Anthropic reviewers should be granted the read scopes plus `campaign.write` and `forum.write` to exercise both read and write tool paths.
 

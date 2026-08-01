@@ -48,11 +48,28 @@ describe("MCP server output schemas", () => {
     ]);
   });
 
-  it("advertises outputSchema for all 63 tools", async () => {
+  it("advertises outputSchema for all 62 tools", async () => {
     const result = await client.listTools();
 
-    expect(result.tools).toHaveLength(63);
+    expect(result.tools).toHaveLength(62);
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
+  });
+
+  it("gives every tool a human-readable title annotation", async () => {
+    const { tools } = await client.listTools();
+
+    const untitled = tools.filter((tool) => !tool.annotations?.title);
+    expect(untitled.map((tool) => tool.name)).toEqual([]);
+  });
+
+  it("does not expose invite_user_by_email", async () => {
+    // Removed for the Anthropic MCP directory review: it dispatched sign-up
+    // email to arbitrary addresses with no campaign or guild context. Only
+    // re-register it once recipients are gated to an existing campaign/guild
+    // and the server requires an explicit user confirmation before dispatch.
+    const { tools } = await client.listTools();
+
+    expect(tools.map((tool) => tool.name)).not.toContain("invite_user_by_email");
   });
 
   it("returns formatted hits with block-addressed snippets from search_mnemons", async () => {

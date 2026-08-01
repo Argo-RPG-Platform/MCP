@@ -204,7 +204,9 @@ const RESOURCE_SCOPES = [
   "campaign.read", "campaign.write", "campaign.create",
   "guild.read", "guild.write", "guild.admin",
   "friends.read", "friends.write",
-  "invite.write",
+  // "invite.write" — dropped with invite_user_by_email (see src/server.ts).
+  // No registered tool uses it, so advertising it would ask users to consent
+  // to a capability the connector no longer exposes.
   "forum.read", "forum.write",
 ] as const;
 const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
