@@ -207,9 +207,8 @@ const RELATIONSHIP_LABELS = [
   "ALLY",
   "ENEMY",
   "RIVAL",
-  "PARENT_OF",
-  "CONTAINS",
-  "LOCATED_IN",
+  "PART_OF",
+  "LOCATED_AT",
   "HAS_SUBQUEST",
   "QUEST_RELATED_NPC",
   "QUEST_RELATED_LOCATION",
@@ -231,9 +230,8 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Faction", label: "RIVAL", target: "Faction", description: "Two factions compete without open hostility. One-way." },
   { source: "NPC", label: "ALLY", target: "NPC", description: "Two NPCs are allies. Mutual — reads the same from both ends." },
   { source: "NPC", label: "ENEMY", target: "NPC", description: "Source NPC is hostile to target. One-way." },
-  { source: "Location", label: "PARENT_OF", target: "Location", description: "Hierarchical containment: source is the larger place." },
-  { source: "Location", label: "CONTAINS", target: "NPC", description: "An NPC is physically present at this location." },
-  { source: "NPC", label: "LOCATED_IN", target: "Location", description: "An NPC is currently at this place. Inverse of CONTAINS." },
+  { source: "Location", label: "PART_OF", target: "Location", description: "Geography: source is the part (inner place), target is the whole (outer place) — e.g. Tavern PART_OF District PART_OF City. Containment — nests the source under the target in the tree, subject to the parenting rules (a Location holds one parent). Stored label: 'Has part', read back as 'Part of' from the part's page." },
+  { source: "NPC", label: "LOCATED_AT", target: "Location", description: "Occupancy: the NPC is currently at this place. A one-way world fact (association), never hierarchy — the fiction moves people without restructuring the tree. Stored label: 'Located at'." },
   { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Containment — nests under the parent quest in the tree. Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
@@ -1217,9 +1215,15 @@ export async function createMnemonRelationship(
   const resolver = new MnemonResolver(campaignId);
   const sourceEntryId = await resolver.resolve(body.sourceEntryId, { fieldLabel: "sourceEntryId" });
   const targetEntryId = await resolver.resolve(body.targetEntryId, { fieldLabel: "targetEntryId" });
+  // PART_OF is authored the way the sentence reads — source is the part, target is the
+  // whole — but a stored containment edge has source = parent (the WebAPI's convention;
+  // the WebApp's connect dialog does the same flip). Swap before POST.
+  const flipped = body.label === "PART_OF";
   return argoPost<Relationship, typeof body>(
     `/mcp/v1/campaigns/${encodeURIComponent(campaignId)}/mnemons/relationships`,
-    { ...body, sourceEntryId, targetEntryId }
+    flipped
+      ? { ...body, sourceEntryId: targetEntryId, targetEntryId: sourceEntryId }
+      : { ...body, sourceEntryId, targetEntryId }
   );
 }
 
