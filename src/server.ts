@@ -1014,9 +1014,11 @@ export function createServer(): McpServer {
     "create_mnemon_relationship",
     {
       description:
-        "Create a relationship between two mnemon entries. " +
-        "All 14 labels: MEMBER (NPC ∈ Faction, bidirectional), ALLY (bidirectional), " +
-        "ENEMY (directional), RIVAL (directional), " +
+        "Create a relationship between two mnemon entries. The label decides everything: " +
+        "its kind (containment or association) and how it reads (one_way or mutual) belong " +
+        "to the word itself — never send a per-edge override. " +
+        "All 14 labels: MEMBER (NPC ∈ Faction, mutual), ALLY (mutual), " +
+        "ENEMY (one-way), RIVAL (one-way), " +
         "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
         "e.g. Region → City → District → Tavern), " +
         "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS), " +
@@ -1026,7 +1028,7 @@ export function createServer(): McpServer {
         "SESSION_ATTENDEE_NPC (SessionSummary → NPC), " +
         "SESSION_FEATURED_QUEST (SessionSummary → Quest), " +
         "SESSION_FEATURED_LOCATION (SessionSummary → Location). " +
-        "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — direction matters. " +
+        "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — which end is which matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
         "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
         "for quest links prefer subQuestEntryIds / relatedNpcEntryIds / relatedLocationEntryIds on the quest. " +

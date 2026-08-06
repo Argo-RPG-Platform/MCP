@@ -61,6 +61,11 @@ export interface Relationship {
   targetId: string;
   label: string;
   color?: string;
+  /** The edge's kind: containment | association | view_membership (Mnemon D33). */
+  kind?: string;
+  /** How the word reads: one_way | mutual. The word owns this (D29) — it is display, not input. */
+  symmetry?: string;
+  /** @deprecated the pre-split single field; still served for old readers. Read kind/symmetry. */
   direction?: string;
 }
 
@@ -122,6 +127,8 @@ export const relationshipOutputSchema = z.object({
   targetId: z.string(),
   label: z.string(),
   color: z.string().optional(),
+  kind: z.string().optional(),
+  symmetry: z.string().optional(),
   direction: z.string().optional(),
 });
 
@@ -219,15 +226,15 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   description: string;
 }> = [
   { source: "Faction", label: "MEMBER", target: "NPC", description: "An NPC belongs to this faction." },
-  { source: "Faction", label: "ALLY", target: "Faction", description: "Two factions are allies. Bidirectional." },
-  { source: "Faction", label: "ENEMY", target: "Faction", description: "Source faction is hostile to target. Directional." },
-  { source: "Faction", label: "RIVAL", target: "Faction", description: "Two factions compete without open hostility. Directional." },
-  { source: "NPC", label: "ALLY", target: "NPC", description: "Two NPCs are allies. Bidirectional." },
-  { source: "NPC", label: "ENEMY", target: "NPC", description: "Source NPC is hostile to target. Directional." },
+  { source: "Faction", label: "ALLY", target: "Faction", description: "Two factions are allies. Mutual — reads the same from both ends." },
+  { source: "Faction", label: "ENEMY", target: "Faction", description: "Source faction is hostile to target. One-way." },
+  { source: "Faction", label: "RIVAL", target: "Faction", description: "Two factions compete without open hostility. One-way." },
+  { source: "NPC", label: "ALLY", target: "NPC", description: "Two NPCs are allies. Mutual — reads the same from both ends." },
+  { source: "NPC", label: "ENEMY", target: "NPC", description: "Source NPC is hostile to target. One-way." },
   { source: "Location", label: "PARENT_OF", target: "Location", description: "Hierarchical containment: source is the larger place." },
   { source: "Location", label: "CONTAINS", target: "NPC", description: "An NPC is physically present at this location." },
   { source: "NPC", label: "LOCATED_IN", target: "Location", description: "An NPC is currently at this place. Inverse of CONTAINS." },
-  { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Hierarchical (direction=parent). Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
+  { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Containment — nests under the parent quest in the tree. Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
   { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the CHARACTER-kind Player mnemon, not the character sheet. Stored label: 'Attendee'." },
@@ -1195,7 +1202,12 @@ export const createMnemonRelationshipInputSchema = z.object({
   targetEntryId: z.string().min(1),
   label: z.enum(RELATIONSHIP_LABELS),
   color: z.string().optional(),
-  direction: z.string().optional(),
+  direction: z
+    .string()
+    .optional()
+    .describe(
+      "Deprecated: leave unset. The label alone decides the edge's shape — its kind and how it reads belong to the word (Mnemon D29/D33), and the server refuses a contradiction."
+    ),
 });
 
 export async function createMnemonRelationship(
