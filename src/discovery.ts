@@ -97,7 +97,12 @@ export function buildManifest(opts: ManifestOptions): Record<string, unknown> {
     support_url: "https://github.com/Argo-RPG-Platform/MCP/issues",
     repository: "https://github.com/Argo-RPG-Platform/MCP",
     categories: ["games", "ttrpg", "worldbuilding", "campaign-management"],
-    privacy_policies: ["https://argo.games/policies/privacy-policy"],
+    // argo.games/policies/<name> is the SHOPIFY path shape. The apex was a
+    // Shopify storefront before it served the marketing build, and that path has
+    // answered 200 with an empty document ever since the repoint — on the field a
+    // connector review fetches. The policy now lives at /privacy; the old address
+    // 301s there (WebApp #1187) so anything already filed keeps resolving.
+    privacy_policies: ["https://argo.games/privacy"],
     remote_url: `${opts.mcpBase}/mcp`,
     sse_url: `${opts.mcpBase}/sse`,
     transports: ["streamable-http", "sse"],

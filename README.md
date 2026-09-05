@@ -256,7 +256,7 @@ Once the MCP is connected, you can install the [argo-agent-skills](https://githu
 
 **Claude.ai / Codex / ChatGPT:** download the per-target zip from the [latest release](https://github.com/Argo-RPG-Platform/argo-agent-skills/releases/latest) and follow the upload steps in that repo's README.
 
-See the [Argo Skills docs](https://app.argo.games/docs/skills) for the full list of skills, examples, and authoring guidance for your own.
+See the [Argo Skills docs](https://app.argo.games/docs/mcp/skills) for the full list of skills, examples, and authoring guidance for your own.
 
 ---
 
@@ -370,7 +370,7 @@ To disconnect the AI assistant from a campaign, revoke the grant from the campai
 
 ## Privacy Policy
 
-Full policy: **https://argo.games/policies/privacy-policy**
+Full policy: **https://argo.games/privacy**
 
 What the Argo MCP server handles:
 

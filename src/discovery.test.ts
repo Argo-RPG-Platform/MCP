@@ -72,6 +72,25 @@ describe("discovery", () => {
     expect((manifest.tools as unknown[]).length).toBe(1);
   });
 
+  it("points its outward-facing URLs at paths that are actually routed", () => {
+    const manifest = buildManifest({
+      mcpBase: "https://mcp.argo.games",
+      oauthBase: "https://oauth.argo.games",
+      tools: [],
+    });
+
+    // A connector review FETCHES these. They are the two fields that can rot
+    // without anything failing: nothing here calls them, so a dead URL stays
+    // green forever. privacy_policies pointed at argo.games/policies/... — the
+    // Shopify path shape, left over from when the apex was a storefront — and
+    // served an empty document for months before anyone opened it.
+    expect(manifest.privacy_policies).toEqual(["https://argo.games/privacy"]);
+    expect(manifest.docs_url).toBe("https://app.argo.games/docs/mcp");
+
+    // /policies/ is the Shopify shape and must never come back here.
+    expect(JSON.stringify(manifest)).not.toContain("/policies/");
+  });
+
   it("produces llms.txt with endpoints", () => {
     const out = buildLlmsTxt({
       mcpBase: "https://mcp.argo.games",
