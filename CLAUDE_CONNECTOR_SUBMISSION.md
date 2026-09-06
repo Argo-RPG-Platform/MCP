@@ -23,7 +23,7 @@ This document captures everything Anthropic reviewers need to verify the Argo MC
 | OAuth + user consent | ✅ | Authorization Code + PKCE S256 against Argo's Ory Hydra (`oauth.argo.games`); refresh-token grant supported; DCR proxied to WebAPI |
 | Redirect URIs allowlisted | ✅ | Verified end-to-end — the Argo MCP is already in use as a custom Claude connector via `https://claude.ai/api/mcp/auth_callback` and `https://claude.com/api/mcp/auth_callback`. DCR accepts both per-client. |
 | Public HTTPS URL | ✅ | Deployed on Google Cloud Run at `https://mcp.argo.games` with managed TLS |
-| Privacy Policy | ✅ | README `## Privacy Policy` section + `privacy_policies: ["https://argo.games/policies/privacy-policy"]` in manifest (`manifest_version: "0.2"`) |
+| Privacy Policy | ✅ | README `## Privacy Policy` section + `privacy_policies: ["https://argo.games/privacy"]` in manifest (`manifest_version: "0.2"`) |
 
 ## OAuth scopes
 
@@ -46,7 +46,7 @@ Request credentials from `support@argo.games`.
 
 ## Privacy
 
-- Hosted policy: `https://argo.games/policies/privacy-policy`
+- Hosted policy: `https://argo.games/privacy`
 - README summary: see `## Privacy Policy` section in `README.md`
 - Manifest field: `privacy_policies` array in `/.well-known/argo-mcp.json`
 
@@ -72,4 +72,4 @@ curl -s https://mcp.argo.games/.well-known/oauth-authorization-server | jq
 curl -s https://mcp.argo.games/.well-known/oauth-protected-resource    | jq
 ```
 
-Expected: `manifest_version: "0.2"`, `privacy_policies: ["https://argo.games/policies/privacy-policy"]`, `registration_endpoint: "https://mcp.argo.games/oauth/register"`.
+Expected: `manifest_version: "0.2"`, `privacy_policies: ["https://argo.games/privacy"]`, `registration_endpoint: "https://mcp.argo.games/oauth/register"`.
