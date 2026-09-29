@@ -865,7 +865,7 @@ export function createServer(): McpServer {
   registerCreateMnemonsTool(
     "create_location_mnemons",
     "Create location mnemons",
-    "Create Location mnemons (places — cities, dungeons, taverns). Use create_mnemon_relationship with PARENT_OF to nest larger places under one another after creation. Players may not call this — GM/co-GM only.",
+    "Create Location mnemons (places — cities, dungeons, taverns). Use create_mnemon_relationship with PART_OF to nest places (source is the inner place, target the outer) after creation. Players may not call this — GM/co-GM only.",
     createLocationMnemonsInputSchema,
     createLocationMnemons
   );
@@ -1017,11 +1017,11 @@ export function createServer(): McpServer {
         "Create a relationship between two mnemon entries. The label decides everything: " +
         "its kind (containment or association) and how it reads (one_way or mutual) belong " +
         "to the word itself — never send a per-edge override. " +
-        "All 14 labels: MEMBER (NPC ∈ Faction, mutual), ALLY (mutual), " +
+        "All 13 labels: MEMBER (NPC ∈ Faction, mutual), ALLY (mutual), " +
         "ENEMY (one-way), RIVAL (one-way), " +
-        "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
-        "e.g. Region → City → District → Tavern), " +
-        "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS), " +
+        "PART_OF (Location geography — sourceEntryId is the part/inner place, " +
+        "e.g. Tavern PART_OF District PART_OF City; nests in the tree), " +
+        "LOCATED_AT (NPC → Location; occupancy, a world fact — never hierarchy), " +
         "HAS_SUBQUEST (Quest → subquest Quest), QUEST_RELATED_NPC (Quest → NPC), " +
         "QUEST_RELATED_LOCATION (Quest → Location), " +
         "SESSION_ATTENDEE_CHARACTER (SessionSummary → CHARACTER-kind Player), " +
