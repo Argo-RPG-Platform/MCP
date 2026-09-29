@@ -90,6 +90,19 @@ export class MnemonResolver {
     return this.resolve(value, options);
   }
 
+  /**
+   * resolveOptional, except that an empty string passes through untouched: the
+   * quest link fields (giverId, locationId, parentQuestId) read it as "remove
+   * this link", and it must not be looked up as a title.
+   */
+  async resolveOrClear(
+    value: string | undefined,
+    options: ResolveOptions
+  ): Promise<string | undefined> {
+    if (value === undefined || value.trim() === "") return value;
+    return this.resolve(value, options);
+  }
+
   async resolveArray(
     values: string[] | undefined,
     options: ResolveOptions

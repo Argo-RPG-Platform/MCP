@@ -48,10 +48,10 @@ describe("MCP server output schemas", () => {
     ]);
   });
 
-  it("advertises outputSchema for all 62 tools", async () => {
+  it("advertises outputSchema for all 63 tools", async () => {
     const result = await client.listTools();
 
-    expect(result.tools).toHaveLength(62);
+    expect(result.tools).toHaveLength(63);
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
   });
 
@@ -129,6 +129,75 @@ describe("MCP server output schemas", () => {
     for (const label of catalog.relationshipLabels) {
       expect(tool.description).toContain(label);
     }
+  });
+
+  describe("quests", () => {
+    const QUEST_HEX = "DDDD3333DDDD3333DDDD3333DDDD3333";
+    // A GM's read of a quest, as the WebAPI's McpMnemonDetailDTO serializes it.
+    const crown = {
+      entryId: QUEST_HEX,
+      title: "The Shattered Crown",
+      type: "Quest",
+      visibility: "INTERNAL",
+      blocks: [],
+      typeProperties: { status: "Active", kind: "Main" },
+      quest: {
+        status: "Active",
+        kind: "Main",
+        playersCanTick: true,
+        objectives: [
+          { id: "obj-1", text: "Find the three shards", state: "done", optional: false, depth: 0 },
+          { id: "obj-2", text: "The shard under the chapel", state: "open", optional: false, depth: 1, parentId: "obj-1", hidden: true },
+        ],
+        rewards: [{ id: "rw-1", kind: "currency", amount: 250, unit: "coin.gp", unitLabel: "Gold piece" }],
+        progress: { done: 1, total: 2 },
+        rewardTotals: { currency: [{ unit: "coin.gp", unitLabel: "Gold piece", amount: 250 }], xp: null },
+      },
+    };
+
+    it("returns a quest's objectives, chips and progress from get_mnemon", async () => {
+      argoGet.mockResolvedValueOnce(crown);
+
+      const result = await client.callTool({ name: "get_mnemon", arguments: { campaignId: "camp-1", entryId: QUEST_HEX } });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ quest: { progress: { done: 1, total: 2 } } });
+    });
+
+    it("ticks an objective by id with set_quest_objective_state and reports the progress", async () => {
+      argoPatch.mockResolvedValueOnce(crown);
+
+      const result = await client.callTool({
+        name: "set_quest_objective_state",
+        arguments: { campaignId: "camp-1", entryId: QUEST_HEX, objectiveId: "obj-1", state: "done" },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(argoPatch).toHaveBeenCalledWith(
+        `/mcp/v1/campaigns/camp-1/mnemons/${QUEST_HEX}/objectives/obj-1`,
+        { state: "done" }
+      );
+      expect(textAt(result)).toContain("Objective set to done. 1 of 2 required objectives done.");
+      expect(result.structuredContent).toMatchObject({ entryId: QUEST_HEX, quest: { status: "Active" } });
+    });
+
+    it("advertises the quest write schemas inline, without $ref", async () => {
+      // Objectives and sub-objectives share field definitions; zod-to-json-schema
+      // turns a reused definition into a $ref unless each use is its own instance.
+      const { tools } = await client.listTools();
+
+      for (const name of ["create_quest_mnemons", "update_quest_mnemons"]) {
+        const tool = tools.find((t) => t.name === name)!;
+        expect(JSON.stringify(tool.inputSchema)).not.toContain("$ref");
+      }
+    });
+
+    it("advertises set_quest_objective_state as an idempotent, non-destructive write", async () => {
+      const { tools } = await client.listTools();
+      const tool = tools.find((t) => t.name === "set_quest_objective_state")!;
+
+      expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
+    });
   });
 
   it("returns structuredContent for a typed read tool", async () => {

@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { argoDelete, argoGet, argoPost, argoPatch } from "../client.js";
+import { ArgoApiError, argoDelete, argoGet, argoPost, argoPatch } from "../client.js";
 import { MnemonResolver } from "./idResolution.js";
 
 // ---------------------------------------------------------------------------
@@ -33,12 +33,52 @@ export interface MnemonSummary {
   type: string;
 }
 
+/**
+ * A quest as the acting user may see it (ARGO-2148), read from its doc after
+ * the doc was redacted for that user. Objective and chip ids are what
+ * set_quest_objective_state and update_quest_mnemons name.
+ */
+export interface QuestProjection {
+  status: string;
+  kind: string;
+  playersCanTick: boolean;
+  /** Flattened in document order; depth and parentId rebuild the nesting. */
+  objectives?: Array<{
+    id?: string;
+    text: string;
+    state: string;
+    optional: boolean;
+    depth: number;
+    parentId?: string;
+    /** Staff reads only: true when players cannot see it. */
+    hidden?: boolean;
+  }>;
+  rewards?: Array<{
+    id?: string;
+    kind: string;
+    amount?: number;
+    unit?: string;
+    unitLabel?: string;
+    label?: string;
+    entryId?: string;
+    ruleEntryId?: string;
+    hidden?: boolean;
+  }>;
+  progress?: { done: number; total: number };
+  rewardTotals?: {
+    currency: Array<{ unit?: string; unitLabel?: string; amount?: number }>;
+    xp?: number | null;
+  };
+}
+
 export interface MnemonEntry {
   entryId: string;
   title: string;
   type: string;
   blocks: MnemonBlock[];
   typeProperties?: Record<string, unknown>;
+  /** Quests only. */
+  quest?: QuestProjection;
 }
 
 export interface MnemonItemResult {
@@ -99,12 +139,63 @@ export const mnemonSummaryOutputSchema = z.object({
   type: z.string(),
 });
 
+// Vocabulary fields are plain strings here, not enums: a value the WebAPI adds
+// later must not fail every read's output validation.
+export const questProjectionOutputSchema = z.object({
+  status: z.string().describe("Available | Active | Completed | Failed."),
+  kind: z.string().describe("Main | Side | Personal."),
+  playersCanTick: z.boolean(),
+  objectives: z
+    .array(
+      z.object({
+        id: z.string().optional().describe("Name it in set_quest_objective_state or update_quest_mnemons."),
+        text: z.string(),
+        state: z.string().describe("open | done | failed."),
+        optional: z.boolean(),
+        depth: z.number().describe("0 for a top-level objective."),
+        parentId: z.string().optional(),
+        hidden: z.boolean().optional().describe("GM reads only: true when players cannot see it."),
+      })
+    )
+    .optional(),
+  rewards: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        kind: z.string().describe("currency | xp | item | other."),
+        amount: z.number().optional(),
+        unit: z.string().optional(),
+        unitLabel: z.string().optional(),
+        label: z.string().optional(),
+        entryId: z.string().optional(),
+        ruleEntryId: z.string().optional(),
+        hidden: z.boolean().optional(),
+      })
+    )
+    .optional(),
+  progress: z
+    .object({ done: z.number(), total: z.number() })
+    .optional()
+    .describe("Required objectives done of those this user can see; optional and failed ones do not count."),
+  rewardTotals: z
+    .object({
+      currency: z.array(
+        z.object({ unit: z.string().optional(), unitLabel: z.string().optional(), amount: z.number().optional() })
+      ),
+      xp: z.number().nullable().optional(),
+    })
+    .optional(),
+});
+
 export const mnemonEntryOutputSchema = z.object({
   entryId: z.string(),
   title: z.string(),
   type: z.string(),
   blocks: z.array(mnemonBlockOutputSchema),
   typeProperties: z.record(z.unknown()).optional(),
+  quest: questProjectionOutputSchema
+    .optional()
+    .describe("Quests only: status, kind, objectives, reward chips and progress as this user may see them."),
 });
 
 export const mnemonItemResultOutputSchema = z.object({
@@ -183,16 +274,25 @@ export const describeMnemonTypesOutputSchema = z.object({
   idReferences: z.string(),
   questBody: z.object({
     summary: z.string(),
-    step: z.object({
+    header: z.object({
       fields: z.array(z.string()),
-      stepIdNotes: z.string(),
       statusValues: z.array(z.string()),
-      statusDefault: z.string(),
+      kindValues: z.array(z.string()),
+      notes: z.string(),
+    }),
+    objective: z.object({
+      fields: z.array(z.string()),
+      stateValues: z.array(z.string()),
+      notes: z.string(),
     }),
     reward: z.object({
       fields: z.array(z.string()),
-      linkedStepIdsNotes: z.string(),
+      kindValues: z.array(z.string()),
+      notes: z.string(),
     }),
+    prose: z.string(),
+    ticking: z.string(),
+    retired: z.string(),
   }),
 });
 
@@ -211,6 +311,8 @@ const RELATIONSHIP_LABELS = [
   "CONTAINS",
   "LOCATED_IN",
   "HAS_SUBQUEST",
+  "QUEST_GIVER",
+  "QUEST_LOCATION",
   "QUEST_RELATED_NPC",
   "QUEST_RELATED_LOCATION",
   "SESSION_ATTENDEE_CHARACTER",
@@ -234,7 +336,9 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Location", label: "PARENT_OF", target: "Location", description: "Hierarchical containment: source is the larger place." },
   { source: "Location", label: "CONTAINS", target: "NPC", description: "An NPC is physically present at this location." },
   { source: "NPC", label: "LOCATED_IN", target: "Location", description: "An NPC is currently at this place. Inverse of CONTAINS." },
-  { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Containment — nests under the parent quest in the tree. Usually mirrored by 'subQuestEntryIds' on the parent quest payload; clients prefer the relationship view." },
+  { source: "Quest", label: "HAS_SUBQUEST", target: "Quest", description: "Source quest has the target as a subquest. Containment — nests under the parent quest in the tree. A quest has one parent: set it from the subquest with parentQuestId on create_quest_mnemons / update_quest_mnemons." },
+  { source: "Quest", label: "QUEST_GIVER", target: "NPC", description: "Who gives the quest. One per quest: set it with giverId on create_quest_mnemons / update_quest_mnemons. Stored label: 'Quest giver'." },
+  { source: "Quest", label: "QUEST_LOCATION", target: "Location", description: "Where the quest is given or set. One per quest: set it with locationId on create_quest_mnemons / update_quest_mnemons. Stored label: 'Quest location'." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
   { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the CHARACTER-kind Player mnemon, not the character sheet. Stored label: 'Attendee'." },
@@ -248,7 +352,7 @@ export function describeMnemonTypes(): object {
     types: [
       { type: "NPC", tool: "create_npc_mnemons / update_npc_mnemons", description: "A non-player character — a person (INDIVIDUAL) or organization (FACTION)." },
       { type: "Location", tool: "create_location_mnemons / update_location_mnemons", description: "A place in the world." },
-      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons", description: "A quest or mission." },
+      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons / set_quest_objective_state", description: "A quest or mission: a status and kind, objectives, reward chips, a Background and GM-only notes. See questBody." },
       { type: "Lore", tool: "create_lore_mnemons / update_lore_mnemons", description: "World lore or background information." },
       { type: "Archive", tool: "create_archive_mnemons / update_archive_mnemons", description: "Archived lore entry." },
       { type: "Journal", tool: "create_journal_mnemons / update_journal_mnemons", description: "A session journal entry." },
@@ -280,17 +384,26 @@ export function describeMnemonTypes(): object {
     relationships: RELATIONSHIP_MATRIX,
     idReferences: "All entryId-shaped fields accept a hex entryId OR a mnemon's exact title — the MCP server resolves titles to hex IDs before calling the API. Title→id resolution fails (with candidate ids) when a title matches multiple mnemons.",
     questBody: {
-      summary: "Quest payloads carry an ordered steps array and a rewards array. Both are optional on create/update; omitting them leaves the existing payload values untouched, and an empty array clears them.",
-      step: {
-        fields: ["stepId", "title", "description", "status", "targetNpcEntryIds", "targetLocationEntryIds", "notes"],
-        stepIdNotes: "Optional on input — the server generates a UUID when blank. Provide the same stepId later (or in a reward's linkedStepIds) to reference the step.",
-        statusValues: QUEST_STEP_STATUSES,
-        statusDefault: "Available (also used as fallback for unrecognized values).",
+      summary: "A quest's body is a document the server builds from the same template the Argo app uses: an objective list, a Rewards list of chips, a Background and GM-only notes. Write them with the typed fields of create_quest_mnemons / update_quest_mnemons — never as Markdown checklists or reward lines — and read them back from get_mnemon's `quest`, which also carries progress and reward totals.",
+      header: {
+        fields: ["status", "kind", "playersCanTick", "hook", "giverId", "locationId", "parentQuestId"],
+        statusValues: [...QUEST_STATUSES],
+        kindValues: [...QUEST_KINDS],
+        notes: "status reads as Available and kind as Side when unset. playersCanTick lets players tick the objectives they can see (off by default). hook is the one line players see under the title in the quest log. giverId (an NPC), locationId (a Location) and parentQuestId (a Quest) each set one link and accept an entryId or exact title; on update an empty string removes the link.",
+      },
+      objective: {
+        fields: ["id", "text", "state", "optional", "hidden", "children"],
+        stateValues: [...QUEST_OBJECTIVE_STATES],
+        notes: "text is one line of Markdown (mentions allowed). optional objectives do not count toward progress. hidden: true keeps an objective from players. On update, objectives is the whole list: name an existing objective by id (from get_mnemon's quest.objectives) to keep it and what the GM wrote under it; one left out is removed. children are its sub-objectives — omitted keeps the ones it has, an empty list removes them.",
       },
       reward: {
-        fields: ["rewardType", "label", "amount", "itemId", "notes", "linkedStepIds"],
-        linkedStepIdsNotes: "Mix of local stepIds and subquest entry ids. Reward unlocks once any linked step/subquest completes.",
+        fields: ["id", "kind", "amount", "unit", "unitLabel", "label", "entryId", "ruleEntryId", "hidden"],
+        kindValues: [...QUEST_REWARD_KINDS],
+        notes: "Every chip needs kind. currency: amount plus unit, the coin as the campaign's setting names it (e.g. coin.gp) or free text. xp: amount. item: label, and entryId (a mnemon entryId or exact title) or ruleEntryId (a rules-library entry), not both. other: label. On update, rewards is the whole list: name an existing chip by id to keep it; an empty list clears it.",
       },
+      prose: "background (the Background section) and gmNotes (never shown to players) are Markdown. On create, markdown is the Background when background is not given. On update, each replaces its section and leaves the rest of the quest as it is.",
+      ticking: "To tick, fail or reopen one objective, call set_quest_objective_state with its id rather than rewriting the list. A player may tick only while playersCanTick is on.",
+      retired: "questStatus, steps, reward rows (rewardType, itemId, notes, linkedStepIds), issuerNpcEntryId, issuerText, repeatable and expiresAt are the retired quest board's fields, accepted for one release on quests the migration has not converted. Do not use them: the Argo app shows them read-only and cannot edit them.",
     },
   };
 }
@@ -560,6 +673,21 @@ export async function createLocationMnemons(
 }
 
 // --- Quest ---
+//
+// A quest is written in one of two shapes (ARGO-2148). The typed fields —
+// objectives, reward chips, background, gmNotes — build the doc-based quest the
+// Argo app shows, from the server's template. The retired quest board's fields
+// (steps, reward rows, the issuer, repeatable, expiresAt, questStatus) are still
+// accepted for one release on quests the quest-doc-v2 migration has not
+// converted; one item may not mix the two. describe_mnemon_types.questBody is
+// the agent-facing account of all this.
+
+export const QUEST_STATUSES = ["Available", "Active", "Completed", "Failed"] as const;
+export const QUEST_KINDS = ["Main", "Side", "Personal"] as const;
+export const QUEST_OBJECTIVE_STATES = ["open", "done", "failed"] as const;
+export const QUEST_REWARD_KINDS = ["currency", "xp", "item", "other"] as const;
+
+/** The retired quest board's step statuses. */
 const QUEST_STEP_STATUSES = [
   "Hidden",
   "Available",
@@ -588,27 +716,137 @@ const questStepInputSchema = z.object({
   notes: stringArray().describe("Free-text bullet notes for the step."),
 });
 
-const questRewardInputSchema = z.object({
-  rewardType: z.string().optional().describe("Bucket: Gold | Item | XP | Reputation | etc."),
-  label: z.string().optional().describe("Display label (e.g. '100 gp', 'Ancient map')."),
-  amount: z.number().int().optional().describe("Numeric amount for stack-like rewards."),
-  itemId: z.string().optional().describe("Optional reference to an item entry."),
-  notes: z.string().optional(),
-  linkedStepIds: stringArray().describe("stepIds and/or subquest entry ids whose completion unlocks this reward."),
+// A factory, not a shared object: zod-to-json-schema writes a schema instance
+// it has already emitted as a $ref, so objectives and sub-objectives each need
+// their own instances to stay inline.
+const questObjectiveFields = () => ({
+  id: z
+    .string()
+    .optional()
+    .describe("The objective to rewrite, as get_mnemon's quest.objectives[].id names it. Omit for a new objective."),
+  text: z
+    .string()
+    .min(1)
+    .describe("The objective, one line of Markdown. Mentions: @[label](mnemon:<entryId>)."),
+  state: z.enum(QUEST_OBJECTIVE_STATES).optional().describe("open (the default), done or failed."),
+  optional: z
+    .boolean()
+    .optional()
+    .describe("An optional objective does not count toward the quest's progress. Defaults to false."),
+  hidden: z
+    .boolean()
+    .optional()
+    .describe("true hides it from players, false shows it; omitted keeps what it has (a new one is shown)."),
 });
 
+// Two levels — objectives and their sub-objectives — rather than a recursive
+// schema, so the tool's JSON Schema stays flat for every client. Deeper nesting
+// is rare, and a sub-objective named by id keeps whatever is nested under it.
+const questObjectiveInputSchema = z.object({
+  ...questObjectiveFields(),
+  children: z
+    .array(z.object(questObjectiveFields()))
+    .optional()
+    .describe("Its sub-objectives, in order. Omitted keeps the ones it has; an empty list removes them."),
+});
+
+const questRewardInputSchema = z.object({
+  id: z
+    .string()
+    .optional()
+    .describe("The chip to rewrite, as get_mnemon's quest.rewards[].id names it. Omit for a new chip."),
+  kind: z
+    .enum(QUEST_REWARD_KINDS)
+    .optional()
+    .describe("currency | xp | item | other. Makes this a reward chip — send it on every reward."),
+  amount: z.number().optional().describe("How many: coins, experience points, a stack."),
+  unit: z
+    .string()
+    .optional()
+    .describe("currency chips: the coin, as the campaign's setting names it (e.g. coin.gp), or free text such as 'gold'."),
+  unitLabel: z.string().optional().describe("How the coin reads, e.g. 'Gold piece'."),
+  label: z.string().optional().describe("What the chip says: an item's name, a favour, a title."),
+  entryId: z
+    .string()
+    .optional()
+    .describe("item chips: the mnemon entry it links to (entryId or exact title). Not with ruleEntryId."),
+  ruleEntryId: z.string().optional().describe("item chips: the rules-library entry it links to. Not with entryId."),
+  hidden: z
+    .boolean()
+    .optional()
+    .describe("true hides the chip from players, false shows it; omitted keeps what it has (a new one is shown)."),
+  rewardType: z.string().optional().describe("Retired reward row, without kind: Gold | Item | XP | Reputation …"),
+  itemId: z.string().optional().describe("Retired reward row: a free-text item reference."),
+  notes: z.string().optional().describe("Retired reward row: notes."),
+  linkedStepIds: stringArray().describe("Retired reward row: the stepIds or subquest entry ids that unlock it."),
+});
+
+/** The quest header: typed fields beside the doc, the same on create and update. */
+const questHeaderFields = {
+  status: z
+    .enum(QUEST_STATUSES)
+    .optional()
+    .describe("Available | Active | Completed | Failed. Reads as Available when unset."),
+  kind: z.enum(QUEST_KINDS).optional().describe("Main | Side | Personal. Reads as Side when unset."),
+  playersCanTick: z
+    .boolean()
+    .optional()
+    .describe("Whether players may tick the objectives they can see. Off by default."),
+  hook: z
+    .string()
+    .optional()
+    .describe("The one line players see under the title in the quest log. An empty string clears it."),
+  giverId: z
+    .string()
+    .optional()
+    .describe("Who gives the quest: an NPC's entryId or exact title (its Quest giver link). On update an empty string removes it."),
+  locationId: z
+    .string()
+    .optional()
+    .describe("Where the quest is given or set: a Location's entryId or exact title. On update an empty string removes it."),
+  parentQuestId: z
+    .string()
+    .optional()
+    .describe("The quest this one belongs to: a Quest's entryId or exact title. On update an empty string removes it."),
+};
+
+const questLinkListFields = {
+  subQuestEntryIds: stringArray().describe("This quest's subquests (entryIds or titles). Prefer parentQuestId on each subquest."),
+  relatedNpcEntryIds: stringArray().describe("NPCs the quest involves (entryIds or titles)."),
+  relatedLocationEntryIds: stringArray().describe("Locations the quest involves (entryIds or titles)."),
+};
+
+const retiredQuestFields = {
+  questStatus: z.string().optional().describe("Retired: send status."),
+  issuerNpcEntryId: z.string().optional().describe("Retired quest board field: send giverId."),
+  issuerText: z.string().optional().describe("Retired quest board field: write it into background."),
+  repeatable: z.boolean().optional().describe("Retired quest board field."),
+  expiresAt: z.string().optional().describe("Retired quest board field (ISO-8601)."),
+  steps: z
+    .array(questStepInputSchema)
+    .optional()
+    .describe("Retired: the old quest board's steps, for quests the migration has not converted. Send objectives."),
+};
+
 const createQuestItemSchema = z.object({
-  ...createCommon,
-  questStatus: z.string().optional().describe("active | completed | failed."),
-  issuerNpcEntryId: z.string().optional(),
-  issuerText: z.string().optional(),
-  repeatable: z.boolean().optional(),
-  expiresAt: z.string().optional().describe("ISO-8601 instant."),
-  subQuestEntryIds: stringArray(),
-  relatedNpcEntryIds: stringArray(),
-  relatedLocationEntryIds: stringArray(),
-  steps: z.array(questStepInputSchema).optional().describe("Ordered list of quest steps. Omit to leave empty."),
-  rewards: z.array(questRewardInputSchema).optional().describe("Rewards shown when the quest completes."),
+  title: createCommon.title,
+  markdown: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The quest's prose in Markdown: its Background when background is not given. " +
+        "Mentions: @[label](mnemon:<entryId>)."
+    ),
+  visibility: visibilityEnum,
+  tags: tagsSchema,
+  ...questHeaderFields,
+  objectives: z.array(questObjectiveInputSchema).optional().describe("The objectives, in order."),
+  rewards: z.array(questRewardInputSchema).optional().describe("The reward chips, each with its kind."),
+  background: z.string().optional().describe("The Background section, in Markdown."),
+  gmNotes: z.string().optional().describe("GM-only notes, in Markdown. Players never see them."),
+  ...questLinkListFields,
+  ...retiredQuestFields,
 });
 
 export const createQuestMnemonsInputSchema = z.object({
@@ -622,15 +860,7 @@ export async function createQuestMnemons(
   const resolver = new MnemonResolver(input.campaignId);
   const items = [];
   for (const it of input.items) {
-    items.push({
-      ...it,
-      issuerNpcEntryId: await resolver.resolveOptional(it.issuerNpcEntryId, { type: "NPC", fieldLabel: "issuerNpcEntryId" }),
-      subQuestEntryIds: await resolver.resolveArray(it.subQuestEntryIds, { type: "Quest", fieldLabel: "subQuestEntryIds" }),
-      relatedNpcEntryIds: await resolver.resolveArray(it.relatedNpcEntryIds, { type: "NPC", fieldLabel: "relatedNpcEntryIds" }),
-      relatedLocationEntryIds: await resolver.resolveArray(it.relatedLocationEntryIds, { type: "Location", fieldLabel: "relatedLocationEntryIds" }),
-      steps: await resolveQuestSteps(resolver, it.steps),
-      rewards: it.rewards,
-    });
+    items.push(asQuestDoc({ ...it, ...(await resolveQuestReferences(resolver, it)) }));
   }
   return argoPost<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/quest`,
@@ -639,6 +869,83 @@ export async function createQuestMnemons(
 }
 
 type QuestStepInput = z.infer<typeof questStepInputSchema>;
+type QuestRewardInput = z.infer<typeof questRewardInputSchema>;
+
+/** The entry references a quest item may carry, on create and update alike. */
+interface QuestReferences {
+  giverId?: string;
+  locationId?: string;
+  parentQuestId?: string;
+  issuerNpcEntryId?: string;
+  subQuestEntryIds?: string[];
+  relatedNpcEntryIds?: string[];
+  relatedLocationEntryIds?: string[];
+  steps?: QuestStepInput[];
+  rewards?: QuestRewardInput[];
+}
+
+/** Resolves every entry reference a quest item carries — entryIds or titles — to hex ids. */
+async function resolveQuestReferences(
+  resolver: MnemonResolver,
+  it: QuestReferences,
+): Promise<QuestReferences> {
+  return {
+    giverId: await resolver.resolveOrClear(it.giverId, { type: "NPC", fieldLabel: "giverId" }),
+    locationId: await resolver.resolveOrClear(it.locationId, { type: "Location", fieldLabel: "locationId" }),
+    parentQuestId: await resolver.resolveOrClear(it.parentQuestId, { type: "Quest", fieldLabel: "parentQuestId" }),
+    issuerNpcEntryId: await resolver.resolveOptional(it.issuerNpcEntryId, { type: "NPC", fieldLabel: "issuerNpcEntryId" }),
+    subQuestEntryIds: await resolver.resolveArray(it.subQuestEntryIds, { type: "Quest", fieldLabel: "subQuestEntryIds" }),
+    relatedNpcEntryIds: await resolver.resolveArray(it.relatedNpcEntryIds, { type: "NPC", fieldLabel: "relatedNpcEntryIds" }),
+    relatedLocationEntryIds: await resolver.resolveArray(it.relatedLocationEntryIds, { type: "Location", fieldLabel: "relatedLocationEntryIds" }),
+    steps: await resolveQuestSteps(resolver, it.steps),
+    rewards: await resolveQuestRewards(resolver, it.rewards),
+  };
+}
+
+/**
+ * Checks each reward names its shape — a chip's kind, or a retired row's
+ * rewardType — and resolves a chip's linked entry. The WebAPI reads a reward
+ * with neither as a retired row, which would quietly give a new quest the old
+ * board's shape.
+ */
+async function resolveQuestRewards(
+  resolver: MnemonResolver,
+  rewards: QuestRewardInput[] | undefined,
+): Promise<QuestRewardInput[] | undefined> {
+  if (!rewards) return undefined;
+  const out: QuestRewardInput[] = [];
+  for (const [i, reward] of rewards.entries()) {
+    if (reward.kind === undefined && reward.rewardType === undefined) {
+      throw new Error(`rewards[${i}]: a reward chip needs its kind — currency, xp, item or other.`);
+    }
+    out.push({
+      ...reward,
+      entryId: await resolver.resolveOrClear(reward.entryId, { fieldLabel: `rewards[${i}].entryId` }),
+    });
+  }
+  return out;
+}
+
+/**
+ * Sends a new quest in the doc-based shape unless it uses a retired quest board
+ * field. The WebAPI stores `markdown` alone in the retired shape — prose with no
+ * objective list or Rewards — so here it goes in as the Background of the
+ * template quest instead, which is the quest the Argo app shows.
+ */
+function asQuestDoc<T extends QuestReferences & { markdown?: string; background?: string; issuerText?: string; repeatable?: boolean; expiresAt?: string }>(
+  item: T,
+): T {
+  const retired =
+    item.steps !== undefined ||
+    item.issuerNpcEntryId !== undefined ||
+    item.issuerText !== undefined ||
+    item.repeatable !== undefined ||
+    item.expiresAt !== undefined ||
+    (item.rewards ?? []).some((reward) => reward.kind === undefined);
+  if (retired || item.background !== undefined || item.markdown === undefined) return item;
+  const { markdown, ...rest } = item;
+  return { ...rest, background: markdown } as T;
+}
 
 /**
  * Resolves the per-step target lists (NPCs / Locations) through the title→id
@@ -949,16 +1256,22 @@ export async function updateLocationMnemons(
 // --- Quest ---
 const updateQuestItemSchema = z.object({
   ...updateCommon,
-  questStatus: z.string().optional(),
-  issuerNpcEntryId: z.string().optional(),
-  issuerText: z.string().optional(),
-  repeatable: z.boolean().optional(),
-  expiresAt: z.string().optional(),
-  subQuestEntryIds: stringArray(),
-  relatedNpcEntryIds: stringArray(),
-  relatedLocationEntryIds: stringArray(),
-  steps: z.array(questStepInputSchema).optional().describe("If present, replaces the entire steps list. Omit to leave steps untouched."),
-  rewards: z.array(questRewardInputSchema).optional().describe("If present, replaces the entire rewards list."),
+  ...questHeaderFields,
+  objectives: z
+    .array(questObjectiveInputSchema)
+    .optional()
+    .describe(
+      "Replaces the objective list. Name an existing objective by id to keep it and what the GM wrote under it; " +
+        "one left out is removed. To tick one objective, use set_quest_objective_state instead."
+    ),
+  rewards: z
+    .array(questRewardInputSchema)
+    .optional()
+    .describe("Replaces the reward chips; an empty list clears them. Name an existing chip by id to keep it."),
+  background: z.string().optional().describe("Replaces the Background section, in Markdown."),
+  gmNotes: z.string().optional().describe("Replaces the GM-only notes, in Markdown."),
+  ...questLinkListFields,
+  ...retiredQuestFields,
 });
 
 export const updateQuestMnemonsInputSchema = z.object({
@@ -974,19 +1287,49 @@ export async function updateQuestMnemons(
   for (const it of input.items) {
     items.push({
       ...it,
-      entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
-      issuerNpcEntryId: await resolver.resolveOptional(it.issuerNpcEntryId, { type: "NPC", fieldLabel: "issuerNpcEntryId" }),
-      subQuestEntryIds: await resolver.resolveArray(it.subQuestEntryIds, { type: "Quest", fieldLabel: "subQuestEntryIds" }),
-      relatedNpcEntryIds: await resolver.resolveArray(it.relatedNpcEntryIds, { type: "NPC", fieldLabel: "relatedNpcEntryIds" }),
-      relatedLocationEntryIds: await resolver.resolveArray(it.relatedLocationEntryIds, { type: "Location", fieldLabel: "relatedLocationEntryIds" }),
-      steps: await resolveQuestSteps(resolver, it.steps),
-      rewards: it.rewards,
+      entryId: await resolver.resolve(it.entryId, { type: "Quest", fieldLabel: "entryId" }),
+      ...(await resolveQuestReferences(resolver, it)),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/quest`,
     { items }
   );
+}
+
+export const setQuestObjectiveStateInputSchema = z.object({
+  campaignId: z.string().min(1).describe("Campaign ID."),
+  entryId: z.string().min(1).describe("The quest: entryId (hex) or exact title."),
+  objectiveId: z.string().min(1).describe("The objective, as get_mnemon's quest.objectives[].id names it."),
+  state: z.enum(QUEST_OBJECTIVE_STATES).describe("open, done or failed."),
+});
+
+/**
+ * Sets one objective's state by id, at any depth, without rewriting the doc.
+ * Answers the quest as get_mnemon shows it, its progress recounted.
+ */
+export async function setQuestObjectiveState(
+  input: z.infer<typeof setQuestObjectiveStateInputSchema>
+): Promise<MnemonEntry> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const hex = await resolver.resolve(input.entryId, { type: "Quest", fieldLabel: "entryId" });
+  try {
+    return await argoPatch<MnemonEntry, { state: string }>(
+      `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/${encodeURIComponent(hex)}` +
+        `/objectives/${encodeURIComponent(input.objectiveId)}`,
+      { state: input.state }
+    );
+  } catch (err) {
+    // The generic 404 text blames the campaign or entry id; here the objective
+    // id is the likelier culprit, and the WebAPI names it.
+    if (err instanceof ArgoApiError && err.status === 404 && err.body.includes("QUEST_OBJECTIVE_NOT_FOUND")) {
+      throw new Error(
+        `This quest has no objective ${JSON.stringify(input.objectiveId)} that you can see. ` +
+          "Read the objective ids from get_mnemon's quest.objectives[].id."
+      );
+    }
+    throw err;
+  }
 }
 
 // --- Lore / Archive ---

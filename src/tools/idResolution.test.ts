@@ -141,6 +141,22 @@ describe("MnemonResolver.resolveOptional", () => {
   });
 });
 
+describe("MnemonResolver.resolveOrClear", () => {
+  it("passes undefined and an empty string through without listing", async () => {
+    const resolver = new MnemonResolver(CAMPAIGN);
+    expect(await resolver.resolveOrClear(undefined, { fieldLabel: "giverId" })).toBeUndefined();
+    expect(await resolver.resolveOrClear("", { fieldLabel: "giverId" })).toBe("");
+    expect(await resolver.resolveOrClear("  ", { fieldLabel: "giverId" })).toBe("  ");
+    expect(argoGet).not.toHaveBeenCalled();
+  });
+
+  it("resolves a title like resolve does", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: NPC_HEX, title: "Mayor", type: "NPC" }]);
+    const resolver = new MnemonResolver(CAMPAIGN);
+    expect(await resolver.resolveOrClear("Mayor", { type: "NPC", fieldLabel: "giverId" })).toBe(NPC_HEX);
+  });
+});
+
 describe("MnemonResolver.resolveArray", () => {
   it("returns undefined for undefined input", async () => {
     const resolver = new MnemonResolver(CAMPAIGN);

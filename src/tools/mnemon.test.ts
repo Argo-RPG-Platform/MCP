@@ -1,7 +1,9 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
 
-// Mock the client before importing the module under test
-vi.mock("../client.js", () => ({
+// Mock the client before importing the module under test. ArgoApiError stays
+// real: setQuestObjectiveState reads it to explain a missing objective.
+vi.mock("../client.js", async (importOriginal) => ({
+  ArgoApiError: (await importOriginal<typeof import("../client.js")>()).ArgoApiError,
   argoPost: vi.fn(),
   argoGet: vi.fn(),
   argoPatch: vi.fn(),
@@ -18,9 +20,13 @@ import {
   describeMnemonTypes,
   describeMnemonTypesOutputSchema,
   listMnemons,
+  mnemonEntryOutputSchema,
   searchMnemons,
+  setQuestObjectiveState,
   updateNpcMnemons,
   updateMnemonsContent,
+  updateQuestMnemons,
+  updateQuestMnemonsInputSchema,
   type MnemonSummary,
 } from "./mnemon.js";
 import * as client from "../client.js";
@@ -341,6 +347,284 @@ describe("createQuestMnemons", () => {
         ],
       }),
     ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The doc-based quest (ARGO-2148 / ARGO-2213)
+// ---------------------------------------------------------------------------
+
+const QUEST_HEX = "DDDD3333DDDD3333DDDD3333DDDD3333";
+const ITEM_HEX = "EEEE4444EEEE4444EEEE4444EEEE4444";
+const created = (title: string) => ({ results: [{ index: 0, success: true, entryId: ENTRY, title }] });
+const sentItem = (call: typeof argoPost | typeof argoPatch) =>
+  (call.mock.calls[0][1] as { items: Array<Record<string, unknown>> }).items[0];
+
+describe("createQuestMnemons — typed quests", () => {
+  it("sends the header, objectives with sub-objectives, reward chips and prose as typed fields", async () => {
+    argoPost.mockResolvedValueOnce(created("The Shattered Crown"));
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "The Shattered Crown",
+          status: "Active",
+          kind: "Main",
+          playersCanTick: true,
+          hook: "The crown is broken and the heirs are circling.",
+          giverId: NPC_HEX,
+          objectives: [
+            { text: "Find the three shards", children: [{ text: "The shard under the chapel", state: "done" }] },
+            { text: "Keep the regent alive", optional: true, hidden: true },
+          ],
+          rewards: [
+            { kind: "currency", amount: 250, unit: "coin.gp", unitLabel: "Gold piece" },
+            { kind: "xp", amount: 1.5 },
+          ],
+          background: "The crown broke on the night the old king died.",
+          gmNotes: "The regent is the thief.",
+        },
+      ],
+    });
+
+    expect(argoGet).not.toHaveBeenCalled(); // hex ids need no lookup
+    expect(sentItem(argoPost)).toMatchObject({
+      status: "Active",
+      kind: "Main",
+      playersCanTick: true,
+      hook: "The crown is broken and the heirs are circling.",
+      giverId: NPC_HEX,
+      objectives: [
+        { text: "Find the three shards", children: [{ text: "The shard under the chapel", state: "done" }] },
+        { text: "Keep the regent alive", optional: true, hidden: true },
+      ],
+      rewards: [
+        { kind: "currency", amount: 250, unit: "coin.gp", unitLabel: "Gold piece" },
+        { kind: "xp", amount: 1.5 },
+      ],
+      background: "The crown broke on the night the old king died.",
+      gmNotes: "The regent is the thief.",
+    });
+  });
+
+  it("resolves the header links and an item chip's entry by title, each against its own type", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "Mira", type: "NPC" },
+      { entryId: LOC_HEX, title: "Mira", type: "Location" },
+      { entryId: QUEST_HEX, title: "The Crown", type: "Quest" },
+      { entryId: ITEM_HEX, title: "Ancient map", type: "Custom" },
+    ]);
+    argoPost.mockResolvedValueOnce(created("The Heir"));
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          title: "The Heir",
+          giverId: "Mira",
+          locationId: "Mira",
+          parentQuestId: "The Crown",
+          rewards: [{ kind: "item", label: "Ancient map", entryId: "Ancient map" }],
+        },
+      ],
+    });
+
+    expect(sentItem(argoPost)).toMatchObject({
+      giverId: NPC_HEX,
+      locationId: LOC_HEX,
+      parentQuestId: QUEST_HEX,
+      rewards: [{ kind: "item", label: "Ancient map", entryId: ITEM_HEX }],
+    });
+    expect(argoGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends markdown alone as the Background of the template quest", async () => {
+    argoPost.mockResolvedValueOnce(created("A lead"));
+    await createQuestMnemons({ campaignId: CAMPAIGN, items: [{ title: "A lead", markdown: "Someone is buying maps." }] });
+
+    const item = sentItem(argoPost);
+    expect(item.background).toBe("Someone is buying maps.");
+    expect(item).not.toHaveProperty("markdown");
+  });
+
+  it("keeps markdown as it is for a quest written with the retired fields", async () => {
+    argoPost.mockResolvedValueOnce(created("Old"));
+    await createQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ title: "Old", markdown: "x", steps: [{ title: "Find the cat" }] }],
+    });
+
+    const item = sentItem(argoPost);
+    expect(item.markdown).toBe("x");
+    expect(item).not.toHaveProperty("background");
+  });
+
+  it("refuses a reward that names neither a chip's kind nor a retired rewardType", async () => {
+    await expect(
+      createQuestMnemons({
+        campaignId: CAMPAIGN,
+        items: [{ title: "Q", objectives: [{ text: "x" }], rewards: [{ label: "50 gp", amount: 50 }] }],
+      })
+    ).rejects.toThrow(/rewards\[0\]: a reward chip needs its kind/);
+    expect(argoPost).not.toHaveBeenCalled();
+  });
+
+  it("holds status, kind and objective state to their vocabularies at the schema layer", () => {
+    const item = (extra: Record<string, unknown>) => ({ campaignId: CAMPAIGN, items: [{ title: "Q", ...extra }] });
+
+    expect(() => createQuestMnemonsInputSchema.parse(item({ status: "Active", kind: "Personal" }))).not.toThrow();
+    expect(() => createQuestMnemonsInputSchema.parse(item({ status: "TurnedIn" }))).toThrow();
+    expect(() => createQuestMnemonsInputSchema.parse(item({ kind: "Epic" }))).toThrow();
+    expect(() => createQuestMnemonsInputSchema.parse(item({ objectives: [{ text: "x", state: "complete" }] }))).toThrow();
+    expect(() => createQuestMnemonsInputSchema.parse(item({ rewards: [{ kind: "gold", amount: 5 }] }))).toThrow();
+  });
+});
+
+describe("updateQuestMnemons", () => {
+  it("passes an empty link through, so the WebAPI removes it, without a title lookup", async () => {
+    argoPatch.mockResolvedValueOnce(created("The Crown"));
+    await updateQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: QUEST_HEX, giverId: "", locationId: "", parentQuestId: "", hook: "" }],
+    });
+
+    expect(argoGet).not.toHaveBeenCalled();
+    expect(sentItem(argoPatch)).toMatchObject({ entryId: QUEST_HEX, giverId: "", locationId: "", parentQuestId: "", hook: "" });
+  });
+
+  it("resolves the quest's title among quests only, and names objectives by id", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "The Crown", type: "NPC" },
+      { entryId: QUEST_HEX, title: "The Crown", type: "Quest" },
+    ]);
+    argoPatch.mockResolvedValueOnce(created("The Crown"));
+    await updateQuestMnemons({
+      campaignId: CAMPAIGN,
+      items: [
+        {
+          entryId: "The Crown",
+          status: "Completed",
+          objectives: [{ id: "obj-1", text: "Find the three shards", state: "done" }, { text: "Crown the heir" }],
+        },
+      ],
+    });
+
+    expect(sentItem(argoPatch)).toMatchObject({
+      entryId: QUEST_HEX,
+      status: "Completed",
+      objectives: [{ id: "obj-1", text: "Find the three shards", state: "done" }, { text: "Crown the heir" }],
+    });
+  });
+
+  it("has no markdown field: a quest's prose is rewritten through background and gmNotes", () => {
+    expect(Object.keys(updateQuestMnemonsInputSchema.shape.items.element.shape)).not.toContain("markdown");
+  });
+});
+
+describe("setQuestObjectiveState", () => {
+  const crown = {
+    entryId: QUEST_HEX,
+    title: "The Crown",
+    type: "Quest",
+    blocks: [],
+    quest: {
+      status: "Active",
+      kind: "Main",
+      playersCanTick: true,
+      objectives: [{ id: "obj-1", text: "Find the three shards", state: "done", optional: false, depth: 0 }],
+      progress: { done: 1, total: 1 },
+      rewardTotals: { currency: [], xp: null },
+    },
+  };
+
+  it("PATCHes the objective by id and returns the quest with its progress recounted", async () => {
+    argoPatch.mockResolvedValueOnce(crown);
+    const entry = await setQuestObjectiveState({
+      campaignId: CAMPAIGN,
+      entryId: QUEST_HEX,
+      objectiveId: "obj-1",
+      state: "done",
+    });
+
+    expect(argoPatch).toHaveBeenCalledWith(
+      `/mcp/v1/campaigns/${CAMPAIGN}/mnemons/${QUEST_HEX}/objectives/obj-1`,
+      { state: "done" }
+    );
+    expect(entry.quest?.progress).toEqual({ done: 1, total: 1 });
+    // What the WebAPI answers must satisfy the tool's advertised output schema.
+    expect(() => mnemonEntryOutputSchema.parse(entry)).not.toThrow();
+  });
+
+  it("resolves the quest by title among quests only", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "The Crown", type: "NPC" },
+      { entryId: QUEST_HEX, title: "The Crown", type: "Quest" },
+    ]);
+    argoPatch.mockResolvedValueOnce(crown);
+    await setQuestObjectiveState({ campaignId: CAMPAIGN, entryId: "The Crown", objectiveId: "obj-1", state: "open" });
+
+    expect(argoPatch.mock.calls[0][0]).toBe(`/mcp/v1/campaigns/${CAMPAIGN}/mnemons/${QUEST_HEX}/objectives/obj-1`);
+  });
+
+  it("names the objective, not the entry, when the WebAPI finds no objective the user can see", async () => {
+    argoPatch.mockRejectedValueOnce(
+      new client.ArgoApiError(
+        404,
+        '{"status":404,"error":"Quest objective not found","code":"QUEST_OBJECTIVE_NOT_FOUND"}',
+        "Argo API error 404"
+      )
+    );
+
+    await expect(
+      setQuestObjectiveState({ campaignId: CAMPAIGN, entryId: QUEST_HEX, objectiveId: "obj-9", state: "done" })
+    ).rejects.toThrow(/no objective "obj-9" that you can see/);
+  });
+
+  it("passes any other refusal through as the WebAPI worded it", async () => {
+    const refusal = new client.ArgoApiError(
+      403,
+      '{"status":403,"error":"The GM has not let players tick this quest\'s objectives","code":"QUEST_TICKING_OFF"}',
+      "Argo API error 403"
+    );
+    argoPatch.mockRejectedValueOnce(refusal);
+
+    await expect(
+      setQuestObjectiveState({ campaignId: CAMPAIGN, entryId: QUEST_HEX, objectiveId: "obj-1", state: "done" })
+    ).rejects.toBe(refusal);
+  });
+});
+
+describe("describeMnemonTypes — quests", () => {
+  it("documents the doc-based quest's typed fields and vocabularies", () => {
+    const { questBody } = describeMnemonTypes() as {
+      questBody: {
+        header: { fields: string[]; statusValues: string[]; kindValues: string[] };
+        objective: { fields: string[]; stateValues: string[] };
+        reward: { fields: string[]; kindValues: string[] };
+      };
+    };
+
+    expect(questBody.header.fields).toEqual(
+      expect.arrayContaining(["status", "kind", "playersCanTick", "hook", "giverId", "locationId", "parentQuestId"])
+    );
+    expect(questBody.header.statusValues).toEqual(["Available", "Active", "Completed", "Failed"]);
+    expect(questBody.header.kindValues).toEqual(["Main", "Side", "Personal"]);
+    expect(questBody.objective.stateValues).toEqual(["open", "done", "failed"]);
+    expect(questBody.reward.kindValues).toEqual(["currency", "xp", "item", "other"]);
+  });
+
+  it("offers the quest giver and quest location links the WebAPI accepts", () => {
+    const { relationshipLabels, relationships } = describeMnemonTypes() as {
+      relationshipLabels: string[];
+      relationships: Array<{ source: string; label: string; target: string }>;
+    };
+
+    expect(relationshipLabels).toEqual(expect.arrayContaining(["QUEST_GIVER", "QUEST_LOCATION"]));
+    expect(relationships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: "Quest", label: "QUEST_GIVER", target: "NPC" }),
+        expect.objectContaining({ source: "Quest", label: "QUEST_LOCATION", target: "Location" }),
+      ])
+    );
   });
 });
 
