@@ -389,7 +389,7 @@ export function describeMnemonTypes(): object {
         fields: ["status", "kind", "playersCanTick", "hook", "giverId", "locationId", "parentQuestId"],
         statusValues: [...QUEST_STATUSES],
         kindValues: [...QUEST_KINDS],
-        notes: "status reads as Available and kind as Side when unset. playersCanTick lets players tick the objectives they can see (off by default). hook is the one line players see under the title in the quest log. giverId (an NPC), locationId (a Location) and parentQuestId (a Quest) each set one link and accept an entryId or exact title; on update an empty string removes the link.",
+        notes: "status reads as Available and kind as Side when unset. playersCanTick lets players tick the objectives they can see (off by default). hook is the one line players see under the title in the quest log; get_mnemon returns it in typeProperties. giverId (an NPC), locationId (a Location) and parentQuestId (a Quest) each set one link and accept an entryId or exact title; on update an empty string removes the link.",
       },
       objective: {
         fields: ["id", "text", "state", "optional", "hidden", "children"],
@@ -403,7 +403,7 @@ export function describeMnemonTypes(): object {
       },
       prose: "background (the Background section) and gmNotes (never shown to players) are Markdown. On create, markdown is the Background when background is not given. On update, each replaces its section and leaves the rest of the quest as it is.",
       ticking: "To tick, fail or reopen one objective, call set_quest_objective_state with its id rather than rewriting the list. A player may tick only while playersCanTick is on.",
-      retired: "questStatus, steps, reward rows (rewardType, itemId, notes, linkedStepIds), issuerNpcEntryId, issuerText, repeatable and expiresAt are the retired quest board's fields, accepted for one release on quests the migration has not converted. Do not use them: the Argo app shows them read-only and cannot edit them.",
+      retired: "questStatus, steps, reward rows (rewardType, itemId, notes, linkedStepIds), issuerNpcEntryId, issuerText, repeatable and expiresAt are the retired quest board's fields, accepted for one release on quests the migration has not converted. Do not use them: the Argo app's quest page no longer shows them.",
     },
   };
 }
