@@ -596,6 +596,18 @@
         "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
       }
     },
+    "set_quest_objective_state": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Sets the state of one quest objective in Argo campaign memory instead of only reading it.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Updates one objective's state, which can be set back at any time; it does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
     "update_archive_mnemons": {
       "annotations": {
         "readOnlyHint": false,

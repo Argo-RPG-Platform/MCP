@@ -72,6 +72,8 @@ import {
   relationshipsResponseOutputSchema,
   searchMnemons,
   searchMnemonsInputSchema,
+  setQuestObjectiveState,
+  setQuestObjectiveStateInputSchema,
   updateArchiveMnemons,
   updateArchiveMnemonsInputSchema,
   updateCustomMnemons,
@@ -93,6 +95,7 @@ import {
   updateSessionSummaryMnemons,
   updateSessionSummaryMnemonsInputSchema,
   type MnemonBulkResponse,
+  type MnemonEntry,
   type MnemonListPage,
   type MnemonSearchResponse,
   type MnemonSummary,
@@ -815,7 +818,10 @@ export function createServer(): McpServer {
   server.registerTool(
     "get_mnemon",
     {
-      description: "Get the full details of a specific mnemon entry (title, blocks, type properties).",
+      description:
+        "Get the full details of a specific mnemon entry (title, blocks, type properties). " +
+        "For a quest, `quest` holds its status, kind, playersCanTick, objectives and reward chips (with their ids), " +
+        "progress and reward totals, as the current user may see them — read objectives and rewards there, not from blocks.",
       inputSchema: getMnemonInputSchema.shape,
       outputSchema: mnemonEntryOutputSchema,
       ...named("Get mnemon", READ_ONLY),
@@ -872,7 +878,11 @@ export function createServer(): McpServer {
   registerCreateMnemonsTool(
     "create_quest_mnemons",
     "Create quest mnemons",
-    "Create Quest mnemons. questStatus is one of active|completed|failed. Players may not call this — GM/co-GM only.",
+    "Create Quest mnemons: a header (status, kind, playersCanTick, hook, and giverId / locationId / parentQuestId links) " +
+      "and a body of objectives (with sub-objectives), reward chips, a Markdown background and GM-only gmNotes. " +
+      "The server builds the quest the Argo app shows from these. Do not write objectives or rewards as Markdown; " +
+      "markdown alone becomes the Background. The retired quest board fields (steps, reward rows, issuer*, questStatus) " +
+      "are for quests the migration has not converted — see describe_mnemon_types.questBody. Players may not call this — GM/co-GM only.",
     createQuestMnemonsInputSchema,
     createQuestMnemons
   );
@@ -939,7 +949,10 @@ export function createServer(): McpServer {
   registerUpdateMnemonsTool(
     "update_quest_mnemons",
     "Update quest mnemons",
-    "Update typed/meta fields of Quest mnemons (status transitions, expiry, related entries).",
+    "Update Quest mnemons. A field left out is left as it is: status, kind, playersCanTick, hook, the giverId / locationId / " +
+      "parentQuestId links (an empty string removes one), and objectives, rewards, background or gmNotes, each of which " +
+      "replaces its part of the quest and keeps the rest. Name existing objectives and chips by the ids get_mnemon's `quest` " +
+      "returns so they keep what the GM wrote under them. To tick one objective, use set_quest_objective_state.",
     updateQuestMnemonsInputSchema,
     updateQuestMnemons
   );
@@ -986,6 +999,32 @@ export function createServer(): McpServer {
     updateCustomMnemons
   );
 
+  // Ticks one objective by id, so an agent never rewrites a quest's objective
+  // list (and races the GM's edits) just to mark progress.
+  server.registerTool(
+    "set_quest_objective_state",
+    {
+      description:
+        "Tick, fail or reopen one objective of a quest by its id (get_mnemon's quest.objectives[].id), at any depth, " +
+        "without rewriting the quest. A GM sets any state. A player may only tick an objective they can see done, or " +
+        "undo that, and only while the quest's playersCanTick is on. Returns the quest as get_mnemon shows it, its " +
+        "progress recounted.",
+      inputSchema: setQuestObjectiveStateInputSchema.shape,
+      outputSchema: mnemonEntryOutputSchema,
+      ...named("Set quest objective state", WRITE_IDEMPOTENT),
+      _meta: WRITE_META,
+    },
+    (input) =>
+      runTool(
+        () => setQuestObjectiveState(input),
+        (entry: MnemonEntry) => {
+          const progress = entry.quest?.progress;
+          const line = progress ? ` ${progress.done} of ${progress.total} required objectives done.` : "";
+          return withStructuredContent(`Objective set to ${input.state}.${line}\n\n${json(entry)}`, entry);
+        }
+      )
+  );
+
   // Content-edit tool — block-level append/insertAfter/replace/remove ops,
   // shared across all mnemon types. Block ids come from get_mnemon. Atomic
   // per entry; multiple entries in one call run independently.
@@ -1017,12 +1056,13 @@ export function createServer(): McpServer {
         "Create a relationship between two mnemon entries. The label decides everything: " +
         "its kind (containment or association) and how it reads (one_way or mutual) belong " +
         "to the word itself — never send a per-edge override. " +
-        "All 14 labels: MEMBER (NPC ∈ Faction, mutual), ALLY (mutual), " +
+        "All 16 labels: MEMBER (NPC ∈ Faction, mutual), ALLY (mutual), " +
         "ENEMY (one-way), RIVAL (one-way), " +
         "PARENT_OF (Location hierarchy — sourceEntryId is the outer/larger place, " +
         "e.g. Region → City → District → Tavern), " +
         "CONTAINS (Location → NPC present there), LOCATED_IN (NPC → Location; inverse of CONTAINS), " +
-        "HAS_SUBQUEST (Quest → subquest Quest), QUEST_RELATED_NPC (Quest → NPC), " +
+        "HAS_SUBQUEST (Quest → subquest Quest), QUEST_GIVER (Quest → the NPC who gives it), " +
+        "QUEST_LOCATION (Quest → the Location where it is given or set), QUEST_RELATED_NPC (Quest → NPC), " +
         "QUEST_RELATED_LOCATION (Quest → Location), " +
         "SESSION_ATTENDEE_CHARACTER (SessionSummary → CHARACTER-kind Player), " +
         "SESSION_ATTENDEE_NPC (SessionSummary → NPC), " +
@@ -1031,7 +1071,8 @@ export function createServer(): McpServer {
         "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — which end is which matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
         "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
-        "for quest links prefer subQuestEntryIds / relatedNpcEntryIds / relatedLocationEntryIds on the quest. " +
+        "for a quest's giver, location and parent prefer giverId / locationId / parentQuestId on the quest, " +
+        "which keep each to one link. " +
         "Session-summary links have no array equivalent — the SESSION_* labels are the only way to set them.",
       inputSchema: createMnemonRelationshipInputSchema.shape,
       outputSchema: relationshipOutputSchema,

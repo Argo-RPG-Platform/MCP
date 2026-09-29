@@ -281,7 +281,8 @@ This server exposes tools across campaigns, mnemons, sessions, guilds, friends, 
 - `get_mnemon` (`campaign.read`) retrieves a mnemon entry in full
 - `list_mnemon_relationships` (`campaign.read`) lists linked entries and relationship edges
 - `create_*_mnemons` (`campaign.write`) creates typed mnemon entries for NPC, Location, Quest, Lore, Archive, Journal, SessionSummary, Player, and Custom entries
-- `update_*_mnemons` (`campaign.write`) updates typed/meta fields for those mnemon entry types
+- `update_*_mnemons` (`campaign.write`) updates typed/meta fields for those mnemon entry types; the quest tools also write a quest's objectives, reward chips, background and GM notes
+- `set_quest_objective_state` (`campaign.write`) ticks, fails or reopens one quest objective by its id
 - `update_mnemons_content` (`campaign.write`) edits mnemon content blocks
 - `create_mnemon_relationship` (`campaign.write`) creates a relationship between entries
 - `delete_mnemon_relationship` (`campaign.write`) deletes a relationship by ID
