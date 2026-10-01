@@ -211,6 +211,27 @@ const RESOURCE_SCOPES = [
 ] as const;
 const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
 
+/**
+ * GET on the Streamable HTTP endpoint asks for the standalone SSE stream, the
+ * one a server uses to push messages nobody requested (list-changed, sampling).
+ * This server never pushes: every response travels on the POST that asked for
+ * it. The spec's answer for that is 405, and clients carry on over POST.
+ *
+ * Opening the stream anyway would hold a request open, with nothing to send,
+ * until the handler timeout. Open it for signed-in sessions only if the server
+ * ever needs to push.
+ */
+export function rejectStandaloneStream(_req: express.Request, res: express.Response): void {
+  res.status(405).set("Allow", "POST, DELETE").json({
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message: "Method not allowed. This server offers no standalone SSE stream; send requests with POST.",
+    },
+    id: null,
+  });
+}
+
 export async function startHttpServer(): Promise<void> {
   const app = express();
   // Explicit body cap: the bulk mnemon tools accept 50 items of Markdown per
@@ -315,38 +336,7 @@ export async function startHttpServer(): Promise<void> {
     }
   };
 
-  const handleStreamGet: express.RequestHandler = async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const transport = sessionId ? streamSessions.get(sessionId) : undefined;
-    if (!transport) {
-      res.status(404).json({ error: "Session not found. Send a POST request first." });
-      return;
-    }
-    if (sessionId) touchStreamSession(sessionId);
-    // Resume a previously established session — re-use whatever token was
-    // cached when the session was opened (may be null if the session was
-    // started by an unauthenticated discovery call).
-    const tokens = (sessionId && streamTokens.get(sessionId)) || tryExtractTokens(req);
-    try {
-      await ensureValidToken(tokens);
-    } catch (err) {
-      if (err instanceof JwtValidationError) {
-        if (sessionId) streamTokens.delete(sessionId);
-        return sendAuthChallenge(res, "campaign.read", err.description);
-      }
-      throw err;
-    }
-    try {
-      const handle = () => transport.handleRequest(req, res);
-      if (tokens) {
-        await runWithToken(tokens, handle);
-      } else {
-        await handle();
-      }
-    } catch (err) {
-      if (!res.headersSent) res.status(500).json({ error: (err as Error).message });
-    }
-  };
+  const handleStreamGet: express.RequestHandler = rejectStandaloneStream;
 
   const handleStreamDelete: express.RequestHandler = async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -416,10 +406,10 @@ export async function startHttpServer(): Promise<void> {
   // Streamable HTTP routes. Mirrored at "/" because Claude Desktop posts to
   // the root when the connector URL has no path component.
   app.post("/mcp", enforceMcpTimeout, handleStreamPost);
-  app.get("/mcp", enforceMcpTimeout, handleStreamGet);
+  app.get("/mcp", handleStreamGet);
   app.delete("/mcp", handleStreamDelete);
   app.post("/", enforceMcpTimeout, handleStreamPost);
-  app.get("/", enforceMcpTimeout, handleStreamGet);
+  app.get("/", handleStreamGet);
   app.delete("/", handleStreamDelete);
 
   // ---------------------------------------------------------------------------
