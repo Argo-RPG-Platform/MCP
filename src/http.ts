@@ -208,6 +208,10 @@ const RESOURCE_SCOPES = [
   // No registered tool uses it, so advertising it would ask users to consent
   // to a capability the connector no longer exposes.
   "forum.read", "forum.write",
+  // Campaign player characters via /integration/v1 (ARGO-3021). No tool here uses it
+  // yet: it is advertised so a connector can ask for it alongside the rest, and it is
+  // only granted when the user ticks "Read characters" at consent.
+  "character.read",
 ] as const;
 const ALL_SCOPES = [...BASE_SCOPES, ...RESOURCE_SCOPES];
 

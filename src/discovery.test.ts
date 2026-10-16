@@ -72,6 +72,22 @@ describe("discovery", () => {
     expect((manifest.tools as unknown[]).length).toBe(1);
   });
 
+  it("advertises character.read beside the other resource scopes", () => {
+    const manifest = buildManifest({
+      mcpBase: "https://mcp.argo.games",
+      oauthBase: "https://oauth.argo.games",
+      tools: [],
+    });
+    const scopes = (manifest.auth as { scopes_supported: string[] }).scopes_supported;
+
+    // ARGO-3021: the /integration/v1 character reads. Granted only when the user
+    // ticks "Read characters" at consent, so advertising it asks nothing on its own.
+    expect(scopes).toContain("character.read");
+    expect(scopes).toContain("campaign.read");
+    // Dropped with invite_user_by_email; it must not come back with this list.
+    expect(scopes).not.toContain("invite.write");
+  });
+
   it("points its outward-facing URLs at paths that are actually routed", () => {
     const manifest = buildManifest({
       mcpBase: "https://mcp.argo.games",

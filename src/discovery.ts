@@ -44,6 +44,8 @@ const RESOURCE_SCOPES = [
   // No registered tool uses it, so advertising it would ask users to consent
   // to a capability the connector no longer exposes.
   "forum.read", "forum.write",
+  // Campaign player characters via /integration/v1 (ARGO-3021); see src/http.ts.
+  "character.read",
 ];
 
 export async function buildToolDigest(): Promise<ToolDigestEntry[]> {
