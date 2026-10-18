@@ -48,11 +48,26 @@ describe("MCP server output schemas", () => {
     ]);
   });
 
-  it("advertises outputSchema for all 63 tools", async () => {
+  it("advertises outputSchema for all 65 tools", async () => {
     const result = await client.listTools();
 
-    expect(result.tools).toHaveLength(63);
+    expect(result.tools).toHaveLength(65);
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
+  });
+
+  it("lists one tool per mnemon type and no Player or PlayerParty create", async () => {
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "create_faction_mnemons",
+        "update_faction_mnemons",
+        "update_player_mnemons",
+        "update_party_mnemons",
+      ])
+    );
+    expect(names).not.toContain("create_player_mnemons");
+    expect(names).not.toContain("create_party_mnemons");
   });
 
   it("gives every tool a human-readable title in both spec locations", async () => {
@@ -268,7 +283,7 @@ describe("MCP server output schemas", () => {
           {
             title: "Captain Nyra",
             markdown: "Harbor master",
-            npcType: "INDIVIDUAL",
+            role: "harbor master",
           },
         ],
       },

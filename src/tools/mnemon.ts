@@ -240,6 +240,7 @@ export const describeMnemonTypesOutputSchema = z.object({
   types: z.array(z.object({
     type: z.string(),
     tool: z.string(),
+    creatable: z.boolean(),
     description: z.string(),
   })),
   markdownFormat: z.object({
@@ -341,7 +342,7 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Quest", label: "QUEST_LOCATION", target: "Location", description: "Where the quest is given or set. One per quest: set it with locationId on create_quest_mnemons / update_quest_mnemons. Stored label: 'Quest location'." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
-  { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the CHARACTER-kind Player mnemon, not the character sheet. Stored label: 'Attendee'." },
+  { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the character's Player mnemon, not the character sheet. Stored label: 'Attendee'." },
   { source: "SessionSummary", label: "SESSION_ATTENDEE_NPC", target: "NPC", description: "An NPC appeared in this session. Stored label: 'NPC Present'." },
   { source: "SessionSummary", label: "SESSION_FEATURED_QUEST", target: "Quest", description: "This session advanced or featured the quest. Stored label: 'Featured Quest'." },
   { source: "SessionSummary", label: "SESSION_FEATURED_LOCATION", target: "Location", description: "This session took place at or featured the location. Stored label: 'Featured Location'." },
@@ -350,15 +351,17 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
 export function describeMnemonTypes(): object {
   return {
     types: [
-      { type: "NPC", tool: "create_npc_mnemons / update_npc_mnemons", description: "A non-player character — a person (INDIVIDUAL) or organization (FACTION)." },
-      { type: "Location", tool: "create_location_mnemons / update_location_mnemons", description: "A place in the world." },
-      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons / set_quest_objective_state", description: "A quest or mission: a status and kind, objectives, reward chips, a Background and GM-only notes. See questBody." },
-      { type: "Lore", tool: "create_lore_mnemons / update_lore_mnemons", description: "World lore or background information." },
-      { type: "Archive", tool: "create_archive_mnemons / update_archive_mnemons", description: "Archived lore entry." },
-      { type: "Journal", tool: "create_journal_mnemons / update_journal_mnemons", description: "A session journal entry." },
-      { type: "SessionSummary", tool: "create_session_summary_mnemons / update_session_summary_mnemons", description: "Structured session summary." },
-      { type: "Player", tool: "create_player_mnemons / update_player_mnemons", description: "Player-facing mnemon (party root, character notes, party notes)." },
-      { type: "Custom", tool: "create_custom_mnemons / update_custom_mnemons", description: "Custom entry type with free-form title." },
+      { type: "NPC", tool: "create_npc_mnemons / update_npc_mnemons", creatable: true, description: "A non-player character: one person, with an optional free-text role. Factions it belongs to go in affiliationEntryIds." },
+      { type: "Faction", tool: "create_faction_mnemons / update_faction_mnemons", creatable: true, description: "A faction, guild, cult or company. Its NPC members go in memberNpcEntryIds." },
+      { type: "Location", tool: "create_location_mnemons / update_location_mnemons", creatable: true, description: "A place in the world." },
+      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons / set_quest_objective_state", creatable: true, description: "A quest or mission: a status and kind, objectives, reward chips, a Background and GM-only notes. See questBody." },
+      { type: "Lore", tool: "create_lore_mnemons / update_lore_mnemons", creatable: true, description: "World lore or background information, including a party's shared notes." },
+      { type: "Archive", tool: "create_archive_mnemons / update_archive_mnemons", creatable: true, description: "Archived lore entry." },
+      { type: "Journal", tool: "create_journal_mnemons / update_journal_mnemons", creatable: true, description: "A session journal entry." },
+      { type: "SessionSummary", tool: "create_session_summary_mnemons / update_session_summary_mnemons", creatable: true, description: "Structured session summary." },
+      { type: "PlayerParty", tool: "update_party_mnemons", creatable: false, description: "One party in the campaign. The server makes it when the party is created and keeps it, read-only, when the party disbands. It cannot be created through any tool." },
+      { type: "Player", tool: "update_player_mnemons", creatable: false, description: "One character in a party, under its PlayerParty. The server makes it when the character joins. It cannot be created through any tool." },
+      { type: "Custom", tool: "create_custom_mnemons / update_custom_mnemons", creatable: true, description: "Custom entry type with free-form title." },
     ],
     markdownFormat: {
       summary: "Mnemon body content is authored as Markdown (headings, lists, quotes, code fences, bold/italic/strikethrough, links). The server canonicalizes it to the rich document model; do not send HTML.",
@@ -620,11 +623,10 @@ const createCommon = {
 // --- NPC ---
 const createNpcItemSchema = z.object({
   ...createCommon,
-  npcType: z.enum(["FACTION", "INDIVIDUAL"]).describe("Required: FACTION (organization) or INDIVIDUAL (person)."),
+  role: z.string().optional().describe('Free-text role or occupation, e.g. "innkeeper", "captain of the guard".'),
   sheetId: z.string().optional(),
   primaryLocationEntryId: z.string().optional().describe("Home location — entryId or exact title."),
-  memberNpcEntryIds: stringArray().describe("FACTION only: members of this faction (NPC entryIds or titles)."),
-  affiliationEntryIds: stringArray().describe("INDIVIDUAL only: factions this person belongs to."),
+  affiliationEntryIds: stringArray().describe("Factions this person belongs to (Faction entryIds or titles)."),
   relationshipIds: stringArray(),
 });
 
@@ -642,12 +644,40 @@ export async function createNpcMnemons(
     items.push({
       ...it,
       primaryLocationEntryId: await resolver.resolveOptional(it.primaryLocationEntryId, { type: "Location", fieldLabel: "primaryLocationEntryId" }),
-      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
       affiliationEntryIds: await resolver.resolveArray(it.affiliationEntryIds, { fieldLabel: "affiliationEntryIds" }),
     });
   }
   return argoPost<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/npc`,
+    { items }
+  );
+}
+
+// --- Faction ---
+const createFactionItemSchema = z.object({
+  ...createCommon,
+  memberNpcEntryIds: stringArray().describe("Members of this faction (NPC entryIds or titles)."),
+  relationshipIds: stringArray(),
+});
+
+export const createFactionMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(createFactionItemSchema).min(1).max(50),
+});
+
+export async function createFactionMnemons(
+  input: z.infer<typeof createFactionMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const items = [];
+  for (const it of input.items) {
+    items.push({
+      ...it,
+      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
+    });
+  }
+  return argoPost<MnemonBulkResponse, { items: typeof items }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/faction`,
     { items }
   );
 }
@@ -1131,36 +1161,8 @@ export async function createSessionSummaryMnemons(
   );
 }
 
-// --- Player ---
-const createPlayerItemSchema = z.object({
-  ...createCommon,
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
-  partyId: z.string().optional().describe("CampaignParty id (NOT a mnemon entryId)."),
-  parentEntryId: z.string().optional().describe("For playerKind=CHARACTER: entryId of the parent PARTY-kind PlayerMnemon."),
-  characterId: z.string().optional().describe("SessionCharacter id (required for playerKind=CHARACTER)."),
-});
-
-export const createPlayerMnemonsInputSchema = z.object({
-  campaignId: z.string().min(1),
-  items: z.array(createPlayerItemSchema).min(1).max(50),
-});
-
-export async function createPlayerMnemons(
-  input: z.infer<typeof createPlayerMnemonsInputSchema>
-): Promise<MnemonBulkResponse> {
-  const resolver = new MnemonResolver(input.campaignId);
-  const items = [];
-  for (const it of input.items) {
-    items.push({
-      ...it,
-      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { type: "Player", fieldLabel: "parentEntryId" }),
-    });
-  }
-  return argoPost<MnemonBulkResponse, { items: typeof items }>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/player`,
-    { items }
-  );
-}
+// Player and PlayerParty have no create tool: only the server's party roster
+// sync makes them, one PlayerParty per party and one Player per character.
 
 // --- Custom ---
 const createCustomItemSchema = z.object({
@@ -1196,11 +1198,10 @@ const updateCommon = {
 // --- NPC ---
 const updateNpcItemSchema = z.object({
   ...updateCommon,
-  npcType: z.enum(["FACTION", "INDIVIDUAL"]).optional(),
+  role: z.string().optional().describe("Free-text role or occupation. An empty string clears it."),
   sheetId: z.string().optional(),
   primaryLocationEntryId: z.string().optional(),
-  memberNpcEntryIds: stringArray(),
-  affiliationEntryIds: stringArray(),
+  affiliationEntryIds: stringArray().describe("Factions this person belongs to (Faction entryIds or titles)."),
   relationshipIds: stringArray(),
 });
 
@@ -1219,12 +1220,41 @@ export async function updateNpcMnemons(
       ...it,
       entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
       primaryLocationEntryId: await resolver.resolveOptional(it.primaryLocationEntryId, { type: "Location", fieldLabel: "primaryLocationEntryId" }),
-      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
       affiliationEntryIds: await resolver.resolveArray(it.affiliationEntryIds, { fieldLabel: "affiliationEntryIds" }),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/npc`,
+    { items }
+  );
+}
+
+// --- Faction ---
+const updateFactionItemSchema = z.object({
+  ...updateCommon,
+  memberNpcEntryIds: stringArray().describe("Members of this faction (NPC entryIds or titles)."),
+  relationshipIds: stringArray(),
+});
+
+export const updateFactionMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(updateFactionItemSchema).min(1).max(50),
+});
+
+export async function updateFactionMnemons(
+  input: z.infer<typeof updateFactionMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const items = [];
+  for (const it of input.items) {
+    items.push({
+      ...it,
+      entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
+      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
+    });
+  }
+  return argoPatch<MnemonBulkResponse, { items: typeof items }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/faction`,
     { items }
   );
 }
@@ -1441,12 +1471,11 @@ export async function updateSessionSummaryMnemons(
   );
 }
 
-// --- Player ---
+// --- Player (one character in a party) ---
 const updatePlayerItemSchema = z.object({
   ...updateCommon,
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
   partyId: z.string().optional(),
-  parentEntryId: z.string().optional(),
+  parentEntryId: z.string().optional().describe("The character's party: a PlayerParty entryId or exact title."),
   characterId: z.string().optional(),
 });
 export const updatePlayerMnemonsInputSchema = z.object({
@@ -1462,13 +1491,27 @@ export async function updatePlayerMnemons(
     items.push({
       ...it,
       entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
-      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { type: "Player", fieldLabel: "parentEntryId" }),
+      // Untyped: a party root reads as Player or PlayerParty depending on
+      // whether the type-split migration has run on it yet.
+      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { fieldLabel: "parentEntryId" }),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/player`,
     { items }
   );
+}
+
+// --- PlayerParty (one party in a campaign; update only) ---
+const updatePartyItemSchema = z.object({ ...updateCommon });
+export const updatePartyMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(updatePartyItemSchema).min(1).max(50),
+});
+export async function updatePartyMnemons(
+  input: z.infer<typeof updatePartyMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  return resolveAndPatchSimple(input, "party", false);
 }
 
 // --- Custom ---

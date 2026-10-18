@@ -34,6 +34,8 @@ import {
   createArchiveMnemonsInputSchema,
   createCustomMnemons,
   createCustomMnemonsInputSchema,
+  createFactionMnemons,
+  createFactionMnemonsInputSchema,
   createJournalMnemons,
   createJournalMnemonsInputSchema,
   createLocationMnemons,
@@ -44,8 +46,6 @@ import {
   createMnemonRelationshipInputSchema,
   createNpcMnemons,
   createNpcMnemonsInputSchema,
-  createPlayerMnemons,
-  createPlayerMnemonsInputSchema,
   createQuestMnemons,
   createQuestMnemonsInputSchema,
   createSessionSummaryMnemons,
@@ -78,6 +78,8 @@ import {
   updateArchiveMnemonsInputSchema,
   updateCustomMnemons,
   updateCustomMnemonsInputSchema,
+  updateFactionMnemons,
+  updateFactionMnemonsInputSchema,
   updateJournalMnemons,
   updateJournalMnemonsInputSchema,
   updateLocationMnemons,
@@ -88,6 +90,8 @@ import {
   updateMnemonsContentInputSchema,
   updateNpcMnemons,
   updateNpcMnemonsInputSchema,
+  updatePartyMnemons,
+  updatePartyMnemonsInputSchema,
   updatePlayerMnemons,
   updatePlayerMnemonsInputSchema,
   updateQuestMnemons,
@@ -732,7 +736,8 @@ export function createServer(): McpServer {
         "Returns a catalog of all mnemon types, their type-specific fields, and the " +
         "full valid relationship matrix (sourceType → label → targetType). " +
         "Call this before create_mnemon or create_mnemon_relationship when you are " +
-        "unsure which type or label to use. NPC subtype is strictly FACTION | INDIVIDUAL.",
+        "unsure which type or label to use. A person is an NPC and a faction is a Faction; " +
+        "Player and PlayerParty are made only by the server and cannot be created.",
       inputSchema: describeMnemonTypesInputSchema.shape,
       outputSchema: describeMnemonTypesOutputSchema,
       ...named("Describe mnemon types", READ_ONLY),
@@ -864,9 +869,16 @@ export function createServer(): McpServer {
   registerCreateMnemonsTool(
     "create_npc_mnemons",
     "Create NPC mnemons",
-    "Create NPC mnemons (FACTION or INDIVIDUAL). npcType is REQUIRED on each item. Use memberNpcEntryIds (on FACTIONs) and affiliationEntryIds (on INDIVIDUALs) to wire membership; the server projects into MEMBER relationships. Players may not call this — GM/co-GM only.",
+    "Create NPC mnemons (individual people). role is an optional free-text role or occupation. Use affiliationEntryIds to name the factions each NPC belongs to; the server projects them into MEMBER relationships. For a faction, guild or cult use create_faction_mnemons. Players may not call this — GM/co-GM only.",
     createNpcMnemonsInputSchema,
     createNpcMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_faction_mnemons",
+    "Create faction mnemons",
+    "Create Faction mnemons (factions, guilds, cults, companies). Use memberNpcEntryIds to name each faction's NPC members; the server projects them into MEMBER relationships. Players may not call this — GM/co-GM only.",
+    createFactionMnemonsInputSchema,
+    createFactionMnemons
   );
   registerCreateMnemonsTool(
     "create_location_mnemons",
@@ -914,13 +926,8 @@ export function createServer(): McpServer {
     createSessionSummaryMnemonsInputSchema,
     createSessionSummaryMnemons
   );
-  registerCreateMnemonsTool(
-    "create_player_mnemons",
-    "Create player mnemons",
-    "Create Player mnemons (party root, character notes, party notes). For playerKind=CHARACTER, supply parentEntryId (the PARTY mnemon), partyId (CampaignParty.id), and characterId (SessionCharacter id) or the entry will be auto-detached. Players with campaign.write may call this for a party they belong to; GMs may call for any party.",
-    createPlayerMnemonsInputSchema,
-    createPlayerMnemons
-  );
+  // No create tool for Player or PlayerParty: the server's party roster sync
+  // makes them, and the WebAPI rejects any other create with a 400.
   registerCreateMnemonsTool(
     "create_custom_mnemons",
     "Create custom mnemons",
@@ -932,12 +939,21 @@ export function createServer(): McpServer {
   // Per-type update tools — typed/meta fields ONLY (title, visibility, tags,
   // type-specific fields). Block-level edits go through update_mnemons_content.
   // All fields except entryId are optional; unset fields are preserved.
+  // Each route updates only its own type: an entry of another type fails its
+  // item, so a faction goes through update_faction_mnemons, not the NPC tool.
   registerUpdateMnemonsTool(
     "update_npc_mnemons",
     "Update NPC mnemons",
-    "Update typed/meta fields of NPC mnemons (visibility, tags, npcType, faction membership, etc.). Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
+    "Update typed/meta fields of NPC mnemons (visibility, tags, role, faction membership, etc.). An entry that is not an NPC fails its item; use update_faction_mnemons for a faction. Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
     updateNpcMnemonsInputSchema,
     updateNpcMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_faction_mnemons",
+    "Update faction mnemons",
+    "Update typed/meta fields of Faction mnemons (visibility, tags, members). An entry that is not a Faction fails its item. Does NOT modify content blocks — use update_mnemons_content for that.",
+    updateFactionMnemonsInputSchema,
+    updateFactionMnemons
   );
   registerUpdateMnemonsTool(
     "update_location_mnemons",
@@ -987,9 +1003,16 @@ export function createServer(): McpServer {
   registerUpdateMnemonsTool(
     "update_player_mnemons",
     "Update player mnemons",
-    "Update typed/meta fields of Player mnemons.",
+    "Update typed/meta fields of Player mnemons — one per character in a party. Player mnemons cannot be created: the server makes one for each character that joins a party. Who may edit an entry is decided by its own permissions.",
     updatePlayerMnemonsInputSchema,
     updatePlayerMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_party_mnemons",
+    "Update party mnemons",
+    "Update typed/meta fields of PlayerParty mnemons — one per party in the campaign. PlayerParty mnemons cannot be created: the server makes one for each party. Who may edit an entry is decided by its own permissions.",
+    updatePartyMnemonsInputSchema,
+    updatePartyMnemons
   );
   registerUpdateMnemonsTool(
     "update_custom_mnemons",
@@ -1064,13 +1087,13 @@ export function createServer(): McpServer {
         "HAS_SUBQUEST (Quest → subquest Quest), QUEST_GIVER (Quest → the NPC who gives it), " +
         "QUEST_LOCATION (Quest → the Location where it is given or set), QUEST_RELATED_NPC (Quest → NPC), " +
         "QUEST_RELATED_LOCATION (Quest → Location), " +
-        "SESSION_ATTENDEE_CHARACTER (SessionSummary → CHARACTER-kind Player), " +
+        "SESSION_ATTENDEE_CHARACTER (SessionSummary → a character's Player), " +
         "SESSION_ATTENDEE_NPC (SessionSummary → NPC), " +
         "SESSION_FEATURED_QUEST (SessionSummary → Quest), " +
         "SESSION_FEATURED_LOCATION (SessionSummary → Location). " +
         "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — which end is which matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
-        "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
+        "For faction membership prefer memberNpcEntryIds on the faction or affiliationEntryIds on the NPC; " +
         "for a quest's giver, location and parent prefer giverId / locationId / parentQuestId on the quest, " +
         "which keep each to one link. " +
         "Session-summary links have no array equivalent — the SESSION_* labels are the only way to set them.",

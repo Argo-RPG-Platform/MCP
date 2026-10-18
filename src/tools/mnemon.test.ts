@@ -11,11 +11,12 @@ vi.mock("../client.js", async (importOriginal) => ({
 }));
 
 import {
+  createFactionMnemons,
   createNpcMnemons,
+  createNpcMnemonsInputSchema,
   createLocationMnemons,
   createQuestMnemons,
   createQuestMnemonsInputSchema,
-  createPlayerMnemons,
   deleteMnemon,
   describeMnemonTypes,
   describeMnemonTypesOutputSchema,
@@ -23,6 +24,10 @@ import {
   mnemonEntryOutputSchema,
   searchMnemons,
   setQuestObjectiveState,
+  updateFactionMnemons,
+  updatePartyMnemons,
+  updatePlayerMnemons,
+  updatePlayerMnemonsInputSchema,
   updateNpcMnemons,
   updateMnemonsContent,
   updateQuestMnemons,
@@ -55,13 +60,22 @@ describe("describeMnemonTypes", () => {
     expect(Array.isArray(result.types)).toBe(true);
   });
 
+  it("marks Player and PlayerParty as made only by the server", () => {
+    const { types } = describeMnemonTypes() as { types: { type: string; tool: string; creatable: boolean }[] };
+    const notCreatable = types.filter((t) => !t.creatable);
+    expect(notCreatable.map((t) => t.type).sort()).toEqual(["Player", "PlayerParty"]);
+    expect(notCreatable.every((t) => !t.tool.includes("create_"))).toBe(true);
+    expect(types.find((t) => t.type === "PlayerParty")?.tool).toBe("update_party_mnemons");
+    expect(types.find((t) => t.type === "Faction")?.tool).toBe("create_faction_mnemons / update_faction_mnemons");
+  });
+
   it("includes all expected types", () => {
     const result = describeMnemonTypes() as { types: { type: string }[] };
     const names = result.types.map((t) => t.type);
     expect(names).toEqual(
       expect.arrayContaining([
-        "NPC", "Location", "Quest", "Lore", "Archive",
-        "Journal", "SessionSummary", "Player", "Custom",
+        "NPC", "Faction", "Location", "Quest", "Lore", "Archive",
+        "Journal", "SessionSummary", "Player", "PlayerParty", "Custom",
       ])
     );
   });
@@ -220,12 +234,12 @@ describe("createNpcMnemons", () => {
     argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Goblin" }] });
     await createNpcMnemons({
       campaignId: CAMPAIGN,
-      items: [{ title: "Goblin", markdown: "ugly", npcType: "INDIVIDUAL" }],
+      items: [{ title: "Goblin", markdown: "ugly", role: "cutpurse" }],
     });
     expect(argoPost).toHaveBeenCalledWith(
       expect.stringMatching(/\/mnemons\/npc$/),
       expect.objectContaining({
-        items: expect.arrayContaining([expect.objectContaining({ title: "Goblin", npcType: "INDIVIDUAL" })]),
+        items: expect.arrayContaining([expect.objectContaining({ title: "Goblin", role: "cutpurse" })]),
       })
     );
   });
@@ -239,13 +253,38 @@ describe("createNpcMnemons", () => {
         {
           title: "Bartender",
           markdown: "x",
-          npcType: "INDIVIDUAL",
           primaryLocationEntryId: "Tavern",
         },
       ],
     });
     const body = argoPost.mock.calls[0][1] as { items: Array<{ primaryLocationEntryId: string }> };
     expect(body.items[0].primaryLocationEntryId).toBe(LOC_HEX);
+  });
+  it("no longer takes npcType or memberNpcEntryIds", () => {
+    const parsed = createNpcMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ title: "Goblin", markdown: "x", npcType: "FACTION", memberNpcEntryIds: [NPC_HEX] }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty("npcType");
+    expect(parsed.items[0]).not.toHaveProperty("memberNpcEntryIds");
+  });
+});
+
+describe("createFactionMnemons", () => {
+  it("POSTs to /mnemons/faction with title-form members resolved to NPC ids", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "Bartender", type: "NPC" },
+      { entryId: LOC_HEX, title: "Bartender", type: "Location" },
+    ]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Thieves' Guild" }] });
+    await createFactionMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ title: "Thieves' Guild", markdown: "x", memberNpcEntryIds: ["Bartender"] }],
+    });
+    expect(argoPost).toHaveBeenCalledWith(
+      expect.stringMatching(/\/campaigns\/camp-123\/mnemons\/faction$/),
+      { items: [expect.objectContaining({ title: "Thieves' Guild", memberNpcEntryIds: [NPC_HEX] })] }
+    );
   });
 });
 
@@ -628,28 +667,6 @@ describe("describeMnemonTypes — quests", () => {
   });
 });
 
-describe("createPlayerMnemons", () => {
-  it("resolves title-form parentEntryId of type Player", async () => {
-    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "Player" }]);
-    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Maelen" }] });
-    await createPlayerMnemons({
-      campaignId: CAMPAIGN,
-      items: [
-        {
-          title: "Maelen",
-          markdown: "x",
-          playerKind: "CHARACTER",
-          parentEntryId: "The Misfits",
-          partyId: "party-id",
-          characterId: "char-id",
-        },
-      ],
-    });
-    const body = argoPost.mock.calls[0][1] as { items: Array<{ parentEntryId: string }> };
-    expect(body.items[0].parentEntryId).toBe(ENTRY);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Per-type update tools
 // ---------------------------------------------------------------------------
@@ -679,6 +696,65 @@ describe("updateNpcMnemons", () => {
     const body = argoPatch.mock.calls[0][1] as { items: Array<{ entryId: string; sheetId: string }> };
     expect(body.items[0].entryId).toBe(NPC_HEX);
     expect(body.items[0].sheetId).toBe("sheet-1");
+  });
+});
+
+describe("updateFactionMnemons", () => {
+  it("PATCHes /mnemons/faction with entryId and members resolved", async () => {
+    argoGet.mockResolvedValue([
+      { entryId: ENTRY, title: "Thieves' Guild", type: "Faction" },
+      { entryId: NPC_HEX, title: "Goblin", type: "NPC" },
+    ]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Thieves' Guild" }] });
+    await updateFactionMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "Thieves' Guild", memberNpcEntryIds: ["Goblin"] }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/faction$/),
+      { items: [expect.objectContaining({ entryId: ENTRY, memberNpcEntryIds: [NPC_HEX] })] }
+    );
+  });
+});
+
+describe("updatePlayerMnemons", () => {
+  it("PATCHes /mnemons/player, resolving the party by title whatever type it reads as", async () => {
+    argoGet.mockResolvedValue([
+      { entryId: NPC_HEX, title: "Maelen", type: "Player" },
+      { entryId: ENTRY, title: "The Misfits", type: "PlayerParty" },
+    ]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Maelen" }] });
+    await updatePlayerMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "Maelen", parentEntryId: "The Misfits", visibility: "INTERNAL" }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/player$/),
+      { items: [expect.objectContaining({ entryId: NPC_HEX, parentEntryId: ENTRY, visibility: "INTERNAL" })] }
+    );
+  });
+
+  it("no longer takes playerKind", () => {
+    const parsed = updatePlayerMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: ENTRY, playerKind: "PARTY" }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty("playerKind");
+  });
+});
+
+describe("updatePartyMnemons", () => {
+  it("PATCHes /mnemons/party with the entryId resolved", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "PlayerParty" }]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "The Misfits" }] });
+    await updatePartyMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "The Misfits", title: "The Merry Misfits", tags: ["party"] }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/campaigns\/camp-123\/mnemons\/party$/),
+      { items: [{ entryId: ENTRY, title: "The Merry Misfits", tags: ["party"] }] }
+    );
   });
 });
 
