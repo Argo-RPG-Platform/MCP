@@ -55,6 +55,21 @@ describe("MCP server output schemas", () => {
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
   });
 
+  it("lists one tool per mnemon type and no Player or PlayerParty create", async () => {
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "create_faction_mnemons",
+        "update_faction_mnemons",
+        "update_player_mnemons",
+        "update_party_mnemons",
+      ])
+    );
+    expect(names).not.toContain("create_player_mnemons");
+    expect(names).not.toContain("create_party_mnemons");
+  });
+
   it("gives every tool a human-readable title in both spec locations", async () => {
     const { tools } = await client.listTools();
 

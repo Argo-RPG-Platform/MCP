@@ -1158,36 +1158,8 @@ export async function createSessionSummaryMnemons(
   );
 }
 
-// --- Player ---
-const createPlayerItemSchema = z.object({
-  ...createCommon,
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
-  partyId: z.string().optional().describe("CampaignParty id (NOT a mnemon entryId)."),
-  parentEntryId: z.string().optional().describe("For playerKind=CHARACTER: entryId of the parent PARTY-kind PlayerMnemon."),
-  characterId: z.string().optional().describe("SessionCharacter id (required for playerKind=CHARACTER)."),
-});
-
-export const createPlayerMnemonsInputSchema = z.object({
-  campaignId: z.string().min(1),
-  items: z.array(createPlayerItemSchema).min(1).max(50),
-});
-
-export async function createPlayerMnemons(
-  input: z.infer<typeof createPlayerMnemonsInputSchema>
-): Promise<MnemonBulkResponse> {
-  const resolver = new MnemonResolver(input.campaignId);
-  const items = [];
-  for (const it of input.items) {
-    items.push({
-      ...it,
-      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { type: "Player", fieldLabel: "parentEntryId" }),
-    });
-  }
-  return argoPost<MnemonBulkResponse, { items: typeof items }>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/player`,
-    { items }
-  );
-}
+// Player and PlayerParty have no create tool: only the server's party roster
+// sync makes them, one PlayerParty per party and one Player per character.
 
 // --- Custom ---
 const createCustomItemSchema = z.object({
@@ -1496,12 +1468,11 @@ export async function updateSessionSummaryMnemons(
   );
 }
 
-// --- Player ---
+// --- Player (one character in a party) ---
 const updatePlayerItemSchema = z.object({
   ...updateCommon,
-  playerKind: z.enum(["PARTY", "CHARACTER", "NOTES"]).optional(),
   partyId: z.string().optional(),
-  parentEntryId: z.string().optional(),
+  parentEntryId: z.string().optional().describe("The character's party: a PlayerParty entryId or exact title."),
   characterId: z.string().optional(),
 });
 export const updatePlayerMnemonsInputSchema = z.object({
@@ -1517,11 +1488,32 @@ export async function updatePlayerMnemons(
     items.push({
       ...it,
       entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
-      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { type: "Player", fieldLabel: "parentEntryId" }),
+      // Untyped: a party root reads as Player or PlayerParty depending on
+      // whether the type-split migration has run on it yet.
+      parentEntryId: await resolver.resolveOptional(it.parentEntryId, { fieldLabel: "parentEntryId" }),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/player`,
+    { items }
+  );
+}
+
+// --- PlayerParty (one party in a campaign; update only) ---
+const updatePartyItemSchema = z.object({ ...updateCommon });
+export const updatePartyMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(updatePartyItemSchema).min(1).max(50),
+});
+export async function updatePartyMnemons(
+  input: z.infer<typeof updatePartyMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const items = await Promise.all(
+    input.items.map(async (it) => ({ ...it, entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }) }))
+  );
+  return argoPatch<MnemonBulkResponse, { items: typeof items }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/party`,
     { items }
   );
 }

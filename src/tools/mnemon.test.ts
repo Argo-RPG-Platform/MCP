@@ -17,7 +17,6 @@ import {
   createLocationMnemons,
   createQuestMnemons,
   createQuestMnemonsInputSchema,
-  createPlayerMnemons,
   deleteMnemon,
   describeMnemonTypes,
   describeMnemonTypesOutputSchema,
@@ -26,6 +25,9 @@ import {
   searchMnemons,
   setQuestObjectiveState,
   updateFactionMnemons,
+  updatePartyMnemons,
+  updatePlayerMnemons,
+  updatePlayerMnemonsInputSchema,
   updateNpcMnemons,
   updateMnemonsContent,
   updateQuestMnemons,
@@ -656,28 +658,6 @@ describe("describeMnemonTypes — quests", () => {
   });
 });
 
-describe("createPlayerMnemons", () => {
-  it("resolves title-form parentEntryId of type Player", async () => {
-    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "Player" }]);
-    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Maelen" }] });
-    await createPlayerMnemons({
-      campaignId: CAMPAIGN,
-      items: [
-        {
-          title: "Maelen",
-          markdown: "x",
-          playerKind: "CHARACTER",
-          parentEntryId: "The Misfits",
-          partyId: "party-id",
-          characterId: "char-id",
-        },
-      ],
-    });
-    const body = argoPost.mock.calls[0][1] as { items: Array<{ parentEntryId: string }> };
-    expect(body.items[0].parentEntryId).toBe(ENTRY);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Per-type update tools
 // ---------------------------------------------------------------------------
@@ -724,6 +704,47 @@ describe("updateFactionMnemons", () => {
     expect(argoPatch).toHaveBeenCalledWith(
       expect.stringMatching(/\/mnemons\/faction$/),
       { items: [expect.objectContaining({ entryId: ENTRY, memberNpcEntryIds: [NPC_HEX] })] }
+    );
+  });
+});
+
+describe("updatePlayerMnemons", () => {
+  it("PATCHes /mnemons/player, resolving the party by title whatever type it reads as", async () => {
+    argoGet.mockResolvedValue([
+      { entryId: NPC_HEX, title: "Maelen", type: "Player" },
+      { entryId: ENTRY, title: "The Misfits", type: "PlayerParty" },
+    ]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: NPC_HEX, title: "Maelen" }] });
+    await updatePlayerMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "Maelen", parentEntryId: "The Misfits", visibility: "INTERNAL" }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/player$/),
+      { items: [expect.objectContaining({ entryId: NPC_HEX, parentEntryId: ENTRY, visibility: "INTERNAL" })] }
+    );
+  });
+
+  it("no longer takes playerKind", () => {
+    const parsed = updatePlayerMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: ENTRY, playerKind: "PARTY" }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty("playerKind");
+  });
+});
+
+describe("updatePartyMnemons", () => {
+  it("PATCHes /mnemons/party with the entryId resolved", async () => {
+    argoGet.mockResolvedValueOnce([{ entryId: ENTRY, title: "The Misfits", type: "PlayerParty" }]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "The Misfits" }] });
+    await updatePartyMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "The Misfits", title: "The Merry Misfits", tags: ["party"] }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/campaigns\/camp-123\/mnemons\/party$/),
+      { items: [{ entryId: ENTRY, title: "The Merry Misfits", tags: ["party"] }] }
     );
   });
 });

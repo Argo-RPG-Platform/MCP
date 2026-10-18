@@ -104,6 +104,18 @@
         "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
       }
     },
+    "create_faction_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
     "create_journal_mnemons": {
       "annotations": {
         "readOnlyHint": false,
@@ -153,18 +165,6 @@
       }
     },
     "create_npc_mnemons": {
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      },
-      "justifications": {
-        "read_only_justification": "Creates new mnemon entries in Argo campaign memory rather than only reading existing entries.",
-        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
-        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
-      }
-    },
-    "create_player_mnemons": {
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -644,6 +644,18 @@
         "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
       }
     },
+    "update_faction_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
     "update_journal_mnemons": {
       "annotations": {
         "readOnlyHint": false,
@@ -693,6 +705,18 @@
       }
     },
     "update_npc_mnemons": {
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Updates typed mnemon metadata in Argo campaign memory instead of only retrieving entries.",
+        "open_world_justification": "Only changes private Argo state and does not publish to public internet state or third-party systems.",
+        "destructive_justification": "Creates or updates records but does not delete data, revoke access, or perform an irreversible admin action."
+      }
+    },
+    "update_party_mnemons": {
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
