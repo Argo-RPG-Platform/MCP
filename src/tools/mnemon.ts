@@ -240,6 +240,7 @@ export const describeMnemonTypesOutputSchema = z.object({
   types: z.array(z.object({
     type: z.string(),
     tool: z.string(),
+    creatable: z.boolean(),
     description: z.string(),
   })),
   markdownFormat: z.object({
@@ -341,7 +342,7 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
   { source: "Quest", label: "QUEST_LOCATION", target: "Location", description: "Where the quest is given or set. One per quest: set it with locationId on create_quest_mnemons / update_quest_mnemons. Stored label: 'Quest location'." },
   { source: "Quest", label: "QUEST_RELATED_NPC", target: "NPC", description: "Quest references this NPC (issuer, target, witness, etc.). Mirrored by 'relatedNpcEntryIds'." },
   { source: "Quest", label: "QUEST_RELATED_LOCATION", target: "Location", description: "Quest references this location. Mirrored by 'relatedLocationEntryIds'." },
-  { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the CHARACTER-kind Player mnemon, not the character sheet. Stored label: 'Attendee'." },
+  { source: "SessionSummary", label: "SESSION_ATTENDEE_CHARACTER", target: "Player", description: "A character attended this session. Target is the character's Player mnemon, not the character sheet. Stored label: 'Attendee'." },
   { source: "SessionSummary", label: "SESSION_ATTENDEE_NPC", target: "NPC", description: "An NPC appeared in this session. Stored label: 'NPC Present'." },
   { source: "SessionSummary", label: "SESSION_FEATURED_QUEST", target: "Quest", description: "This session advanced or featured the quest. Stored label: 'Featured Quest'." },
   { source: "SessionSummary", label: "SESSION_FEATURED_LOCATION", target: "Location", description: "This session took place at or featured the location. Stored label: 'Featured Location'." },
@@ -350,15 +351,17 @@ const RELATIONSHIP_MATRIX: ReadonlyArray<{
 export function describeMnemonTypes(): object {
   return {
     types: [
-      { type: "NPC", tool: "create_npc_mnemons / update_npc_mnemons", description: "A non-player character — a person (INDIVIDUAL) or organization (FACTION)." },
-      { type: "Location", tool: "create_location_mnemons / update_location_mnemons", description: "A place in the world." },
-      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons / set_quest_objective_state", description: "A quest or mission: a status and kind, objectives, reward chips, a Background and GM-only notes. See questBody." },
-      { type: "Lore", tool: "create_lore_mnemons / update_lore_mnemons", description: "World lore or background information." },
-      { type: "Archive", tool: "create_archive_mnemons / update_archive_mnemons", description: "Archived lore entry." },
-      { type: "Journal", tool: "create_journal_mnemons / update_journal_mnemons", description: "A session journal entry." },
-      { type: "SessionSummary", tool: "create_session_summary_mnemons / update_session_summary_mnemons", description: "Structured session summary." },
-      { type: "Player", tool: "create_player_mnemons / update_player_mnemons", description: "Player-facing mnemon (party root, character notes, party notes)." },
-      { type: "Custom", tool: "create_custom_mnemons / update_custom_mnemons", description: "Custom entry type with free-form title." },
+      { type: "NPC", tool: "create_npc_mnemons / update_npc_mnemons", creatable: true, description: "A non-player character: one person, with an optional free-text role. Factions it belongs to go in affiliationEntryIds." },
+      { type: "Faction", tool: "create_faction_mnemons / update_faction_mnemons", creatable: true, description: "A faction, guild, cult or company. Its NPC members go in memberNpcEntryIds." },
+      { type: "Location", tool: "create_location_mnemons / update_location_mnemons", creatable: true, description: "A place in the world." },
+      { type: "Quest", tool: "create_quest_mnemons / update_quest_mnemons / set_quest_objective_state", creatable: true, description: "A quest or mission: a status and kind, objectives, reward chips, a Background and GM-only notes. See questBody." },
+      { type: "Lore", tool: "create_lore_mnemons / update_lore_mnemons", creatable: true, description: "World lore or background information, including a party's shared notes." },
+      { type: "Archive", tool: "create_archive_mnemons / update_archive_mnemons", creatable: true, description: "Archived lore entry." },
+      { type: "Journal", tool: "create_journal_mnemons / update_journal_mnemons", creatable: true, description: "A session journal entry." },
+      { type: "SessionSummary", tool: "create_session_summary_mnemons / update_session_summary_mnemons", creatable: true, description: "Structured session summary." },
+      { type: "PlayerParty", tool: "update_party_mnemons", creatable: false, description: "One party in the campaign. The server makes it when the party is created and keeps it, read-only, when the party disbands. It cannot be created through any tool." },
+      { type: "Player", tool: "update_player_mnemons", creatable: false, description: "One character in a party, under its PlayerParty. The server makes it when the character joins. It cannot be created through any tool." },
+      { type: "Custom", tool: "create_custom_mnemons / update_custom_mnemons", creatable: true, description: "Custom entry type with free-form title." },
     ],
     markdownFormat: {
       summary: "Mnemon body content is authored as Markdown (headings, lists, quotes, code fences, bold/italic/strikethrough, links). The server canonicalizes it to the rich document model; do not send HTML.",

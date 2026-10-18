@@ -60,13 +60,22 @@ describe("describeMnemonTypes", () => {
     expect(Array.isArray(result.types)).toBe(true);
   });
 
+  it("marks Player and PlayerParty as made only by the server", () => {
+    const { types } = describeMnemonTypes() as { types: { type: string; tool: string; creatable: boolean }[] };
+    const notCreatable = types.filter((t) => !t.creatable);
+    expect(notCreatable.map((t) => t.type).sort()).toEqual(["Player", "PlayerParty"]);
+    expect(notCreatable.every((t) => !t.tool.includes("create_"))).toBe(true);
+    expect(types.find((t) => t.type === "PlayerParty")?.tool).toBe("update_party_mnemons");
+    expect(types.find((t) => t.type === "Faction")?.tool).toBe("create_faction_mnemons / update_faction_mnemons");
+  });
+
   it("includes all expected types", () => {
     const result = describeMnemonTypes() as { types: { type: string }[] };
     const names = result.types.map((t) => t.type);
     expect(names).toEqual(
       expect.arrayContaining([
-        "NPC", "Location", "Quest", "Lore", "Archive",
-        "Journal", "SessionSummary", "Player", "Custom",
+        "NPC", "Faction", "Location", "Quest", "Lore", "Archive",
+        "Journal", "SessionSummary", "Player", "PlayerParty", "Custom",
       ])
     );
   });

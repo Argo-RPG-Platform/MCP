@@ -736,7 +736,8 @@ export function createServer(): McpServer {
         "Returns a catalog of all mnemon types, their type-specific fields, and the " +
         "full valid relationship matrix (sourceType → label → targetType). " +
         "Call this before create_mnemon or create_mnemon_relationship when you are " +
-        "unsure which type or label to use. NPC subtype is strictly FACTION | INDIVIDUAL.",
+        "unsure which type or label to use. A person is an NPC and a faction is a Faction; " +
+        "Player and PlayerParty are made only by the server and cannot be created.",
       inputSchema: describeMnemonTypesInputSchema.shape,
       outputSchema: describeMnemonTypesOutputSchema,
       ...named("Describe mnemon types", READ_ONLY),
@@ -1084,7 +1085,7 @@ export function createServer(): McpServer {
         "HAS_SUBQUEST (Quest → subquest Quest), QUEST_GIVER (Quest → the NPC who gives it), " +
         "QUEST_LOCATION (Quest → the Location where it is given or set), QUEST_RELATED_NPC (Quest → NPC), " +
         "QUEST_RELATED_LOCATION (Quest → Location), " +
-        "SESSION_ATTENDEE_CHARACTER (SessionSummary → CHARACTER-kind Player), " +
+        "SESSION_ATTENDEE_CHARACTER (SessionSummary → a character's Player), " +
         "SESSION_ATTENDEE_NPC (SessionSummary → NPC), " +
         "SESSION_FEATURED_QUEST (SessionSummary → Quest), " +
         "SESSION_FEATURED_LOCATION (SessionSummary → Location). " +
