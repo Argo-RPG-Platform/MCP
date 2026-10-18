@@ -1198,7 +1198,7 @@ const updateCommon = {
 // --- NPC ---
 const updateNpcItemSchema = z.object({
   ...updateCommon,
-  role: z.string().optional().describe("Free-text role or occupation."),
+  role: z.string().optional().describe("Free-text role or occupation. An empty string clears it."),
   sheetId: z.string().optional(),
   primaryLocationEntryId: z.string().optional(),
   affiliationEntryIds: stringArray().describe("Factions this person belongs to (Faction entryIds or titles)."),

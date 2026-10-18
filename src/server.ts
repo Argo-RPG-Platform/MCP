@@ -939,17 +939,19 @@ export function createServer(): McpServer {
   // Per-type update tools — typed/meta fields ONLY (title, visibility, tags,
   // type-specific fields). Block-level edits go through update_mnemons_content.
   // All fields except entryId are optional; unset fields are preserved.
+  // Each route updates only its own type: an entry of another type fails its
+  // item, so a faction goes through update_faction_mnemons, not the NPC tool.
   registerUpdateMnemonsTool(
     "update_npc_mnemons",
     "Update NPC mnemons",
-    "Update typed/meta fields of NPC mnemons (visibility, tags, role, faction membership, etc.). Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
+    "Update typed/meta fields of NPC mnemons (visibility, tags, role, faction membership, etc.). An entry that is not an NPC fails its item; use update_faction_mnemons for a faction. Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
     updateNpcMnemonsInputSchema,
     updateNpcMnemons
   );
   registerUpdateMnemonsTool(
     "update_faction_mnemons",
     "Update faction mnemons",
-    "Update typed/meta fields of Faction mnemons (visibility, tags, members). Does NOT modify content blocks — use update_mnemons_content for that.",
+    "Update typed/meta fields of Faction mnemons (visibility, tags, members). An entry that is not a Faction fails its item. Does NOT modify content blocks — use update_mnemons_content for that.",
     updateFactionMnemonsInputSchema,
     updateFactionMnemons
   );
