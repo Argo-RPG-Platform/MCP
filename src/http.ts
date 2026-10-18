@@ -22,6 +22,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { runWithToken } from "./auth.js";
 import { createServer } from "./server.js";
 import { isJwtValidationEnabled, JwtValidationError, validateBearer } from "./jwt.js";
@@ -232,6 +233,34 @@ export function rejectStandaloneStream(_req: express.Request, res: express.Respo
   });
 }
 
+/**
+ * Where a Streamable HTTP POST goes, by the session it names.
+ *
+ * - `existing`: a session this process knows.
+ * - `new`: no session id, or an `initialize`: a client starting a session.
+ * - `unknown-session`: any other request naming a session this process doesn't
+ *   hold. The idle sweep dropped it, or the service restarted since. The spec's
+ *   answer is 404, which tells the client to start a new session; handing the
+ *   request to a fresh, uninitialized transport instead answers 400 "Server not
+ *   initialized" on every call, and the client never recovers by itself.
+ */
+export type StreamRoute = "existing" | "new" | "unknown-session";
+
+export function routeStreamRequest(sessionId: string | undefined, known: boolean, body: unknown): StreamRoute {
+  if (sessionId && known) return "existing";
+  if (!sessionId || isInitializeRequest(body)) return "new";
+  return "unknown-session";
+}
+
+/** The spec's answer to a request naming a session this server doesn't hold. */
+export function rejectUnknownSession(res: express.Response): void {
+  res.status(404).json({
+    jsonrpc: "2.0",
+    error: { code: -32001, message: "Session not found. Start a new session with an initialize request." },
+    id: null,
+  });
+}
+
 export async function startHttpServer(): Promise<void> {
   const app = express();
   // Explicit body cap: the bulk mnemon tools accept 50 items of Markdown per
@@ -306,7 +335,10 @@ export async function startHttpServer(): Promise<void> {
     }
 
     try {
-      let transport = sessionId ? streamSessions.get(sessionId) : undefined;
+      const known = sessionId ? streamSessions.get(sessionId) : undefined;
+      const route = routeStreamRequest(sessionId, known !== undefined, req.body);
+      if (route === "unknown-session") return rejectUnknownSession(res);
+      let transport = route === "existing" ? known : undefined;
       if (!transport) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
