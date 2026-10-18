@@ -620,11 +620,10 @@ const createCommon = {
 // --- NPC ---
 const createNpcItemSchema = z.object({
   ...createCommon,
-  npcType: z.enum(["FACTION", "INDIVIDUAL"]).describe("Required: FACTION (organization) or INDIVIDUAL (person)."),
+  role: z.string().optional().describe('Free-text role or occupation, e.g. "innkeeper", "captain of the guard".'),
   sheetId: z.string().optional(),
   primaryLocationEntryId: z.string().optional().describe("Home location — entryId or exact title."),
-  memberNpcEntryIds: stringArray().describe("FACTION only: members of this faction (NPC entryIds or titles)."),
-  affiliationEntryIds: stringArray().describe("INDIVIDUAL only: factions this person belongs to."),
+  affiliationEntryIds: stringArray().describe("Factions this person belongs to (Faction entryIds or titles)."),
   relationshipIds: stringArray(),
 });
 
@@ -642,12 +641,40 @@ export async function createNpcMnemons(
     items.push({
       ...it,
       primaryLocationEntryId: await resolver.resolveOptional(it.primaryLocationEntryId, { type: "Location", fieldLabel: "primaryLocationEntryId" }),
-      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
       affiliationEntryIds: await resolver.resolveArray(it.affiliationEntryIds, { fieldLabel: "affiliationEntryIds" }),
     });
   }
   return argoPost<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/npc`,
+    { items }
+  );
+}
+
+// --- Faction ---
+const createFactionItemSchema = z.object({
+  ...createCommon,
+  memberNpcEntryIds: stringArray().describe("Members of this faction (NPC entryIds or titles)."),
+  relationshipIds: stringArray(),
+});
+
+export const createFactionMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(createFactionItemSchema).min(1).max(50),
+});
+
+export async function createFactionMnemons(
+  input: z.infer<typeof createFactionMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const items = [];
+  for (const it of input.items) {
+    items.push({
+      ...it,
+      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
+    });
+  }
+  return argoPost<MnemonBulkResponse, { items: typeof items }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/faction`,
     { items }
   );
 }
@@ -1196,11 +1223,10 @@ const updateCommon = {
 // --- NPC ---
 const updateNpcItemSchema = z.object({
   ...updateCommon,
-  npcType: z.enum(["FACTION", "INDIVIDUAL"]).optional(),
+  role: z.string().optional().describe("Free-text role or occupation."),
   sheetId: z.string().optional(),
   primaryLocationEntryId: z.string().optional(),
-  memberNpcEntryIds: stringArray(),
-  affiliationEntryIds: stringArray(),
+  affiliationEntryIds: stringArray().describe("Factions this person belongs to (Faction entryIds or titles)."),
   relationshipIds: stringArray(),
 });
 
@@ -1219,12 +1245,41 @@ export async function updateNpcMnemons(
       ...it,
       entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
       primaryLocationEntryId: await resolver.resolveOptional(it.primaryLocationEntryId, { type: "Location", fieldLabel: "primaryLocationEntryId" }),
-      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
       affiliationEntryIds: await resolver.resolveArray(it.affiliationEntryIds, { fieldLabel: "affiliationEntryIds" }),
     });
   }
   return argoPatch<MnemonBulkResponse, { items: typeof items }>(
     `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/npc`,
+    { items }
+  );
+}
+
+// --- Faction ---
+const updateFactionItemSchema = z.object({
+  ...updateCommon,
+  memberNpcEntryIds: stringArray().describe("Members of this faction (NPC entryIds or titles)."),
+  relationshipIds: stringArray(),
+});
+
+export const updateFactionMnemonsInputSchema = z.object({
+  campaignId: z.string().min(1),
+  items: z.array(updateFactionItemSchema).min(1).max(50),
+});
+
+export async function updateFactionMnemons(
+  input: z.infer<typeof updateFactionMnemonsInputSchema>
+): Promise<MnemonBulkResponse> {
+  const resolver = new MnemonResolver(input.campaignId);
+  const items = [];
+  for (const it of input.items) {
+    items.push({
+      ...it,
+      entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }),
+      memberNpcEntryIds: await resolver.resolveArray(it.memberNpcEntryIds, { type: "NPC", fieldLabel: "memberNpcEntryIds" }),
+    });
+  }
+  return argoPatch<MnemonBulkResponse, { items: typeof items }>(
+    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/faction`,
     { items }
   );
 }

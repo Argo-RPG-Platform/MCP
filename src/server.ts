@@ -42,6 +42,8 @@ import {
   createLoreMnemonsInputSchema,
   createMnemonRelationship,
   createMnemonRelationshipInputSchema,
+  createFactionMnemons,
+  createFactionMnemonsInputSchema,
   createNpcMnemons,
   createNpcMnemonsInputSchema,
   createPlayerMnemons,
@@ -86,6 +88,8 @@ import {
   updateLoreMnemonsInputSchema,
   updateMnemonsContent,
   updateMnemonsContentInputSchema,
+  updateFactionMnemons,
+  updateFactionMnemonsInputSchema,
   updateNpcMnemons,
   updateNpcMnemonsInputSchema,
   updatePlayerMnemons,
@@ -864,9 +868,16 @@ export function createServer(): McpServer {
   registerCreateMnemonsTool(
     "create_npc_mnemons",
     "Create NPC mnemons",
-    "Create NPC mnemons (FACTION or INDIVIDUAL). npcType is REQUIRED on each item. Use memberNpcEntryIds (on FACTIONs) and affiliationEntryIds (on INDIVIDUALs) to wire membership; the server projects into MEMBER relationships. Players may not call this — GM/co-GM only.",
+    "Create NPC mnemons (individual people). role is an optional free-text role or occupation. Use affiliationEntryIds to name the factions each NPC belongs to; the server projects them into MEMBER relationships. For a faction, guild or cult use create_faction_mnemons. Players may not call this — GM/co-GM only.",
     createNpcMnemonsInputSchema,
     createNpcMnemons
+  );
+  registerCreateMnemonsTool(
+    "create_faction_mnemons",
+    "Create faction mnemons",
+    "Create Faction mnemons (factions, guilds, cults, companies). Use memberNpcEntryIds to name each faction's NPC members; the server projects them into MEMBER relationships. Players may not call this — GM/co-GM only.",
+    createFactionMnemonsInputSchema,
+    createFactionMnemons
   );
   registerCreateMnemonsTool(
     "create_location_mnemons",
@@ -935,9 +946,16 @@ export function createServer(): McpServer {
   registerUpdateMnemonsTool(
     "update_npc_mnemons",
     "Update NPC mnemons",
-    "Update typed/meta fields of NPC mnemons (visibility, tags, npcType, faction membership, etc.). Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
+    "Update typed/meta fields of NPC mnemons (visibility, tags, role, faction membership, etc.). Does NOT modify content blocks — use update_mnemons_content for that. Set visibility=PUBLIC on multiple NPCs in a single call by listing them in items[].",
     updateNpcMnemonsInputSchema,
     updateNpcMnemons
+  );
+  registerUpdateMnemonsTool(
+    "update_faction_mnemons",
+    "Update faction mnemons",
+    "Update typed/meta fields of Faction mnemons (visibility, tags, members). Does NOT modify content blocks — use update_mnemons_content for that.",
+    updateFactionMnemonsInputSchema,
+    updateFactionMnemons
   );
   registerUpdateMnemonsTool(
     "update_location_mnemons",
@@ -1070,7 +1088,7 @@ export function createServer(): McpServer {
         "SESSION_FEATURED_LOCATION (SessionSummary → Location). " +
         "sourceEntryId is the 'from' side; targetEntryId is the 'to' side — which end is which matters. " +
         "Call describe_mnemon_types for the full valid (sourceType, label, targetType) matrix. " +
-        "For faction membership prefer memberNpcEntryIds / affiliationEntryIds on the NPC itself; " +
+        "For faction membership prefer memberNpcEntryIds on the faction or affiliationEntryIds on the NPC; " +
         "for a quest's giver, location and parent prefer giverId / locationId / parentQuestId on the quest, " +
         "which keep each to one link. " +
         "Session-summary links have no array equivalent — the SESSION_* labels are the only way to set them.",

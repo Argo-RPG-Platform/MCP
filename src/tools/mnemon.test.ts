@@ -11,7 +11,9 @@ vi.mock("../client.js", async (importOriginal) => ({
 }));
 
 import {
+  createFactionMnemons,
   createNpcMnemons,
+  createNpcMnemonsInputSchema,
   createLocationMnemons,
   createQuestMnemons,
   createQuestMnemonsInputSchema,
@@ -23,6 +25,7 @@ import {
   mnemonEntryOutputSchema,
   searchMnemons,
   setQuestObjectiveState,
+  updateFactionMnemons,
   updateNpcMnemons,
   updateMnemonsContent,
   updateQuestMnemons,
@@ -220,12 +223,12 @@ describe("createNpcMnemons", () => {
     argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Goblin" }] });
     await createNpcMnemons({
       campaignId: CAMPAIGN,
-      items: [{ title: "Goblin", markdown: "ugly", npcType: "INDIVIDUAL" }],
+      items: [{ title: "Goblin", markdown: "ugly", role: "cutpurse" }],
     });
     expect(argoPost).toHaveBeenCalledWith(
       expect.stringMatching(/\/mnemons\/npc$/),
       expect.objectContaining({
-        items: expect.arrayContaining([expect.objectContaining({ title: "Goblin", npcType: "INDIVIDUAL" })]),
+        items: expect.arrayContaining([expect.objectContaining({ title: "Goblin", role: "cutpurse" })]),
       })
     );
   });
@@ -239,13 +242,38 @@ describe("createNpcMnemons", () => {
         {
           title: "Bartender",
           markdown: "x",
-          npcType: "INDIVIDUAL",
           primaryLocationEntryId: "Tavern",
         },
       ],
     });
     const body = argoPost.mock.calls[0][1] as { items: Array<{ primaryLocationEntryId: string }> };
     expect(body.items[0].primaryLocationEntryId).toBe(LOC_HEX);
+  });
+  it("no longer takes npcType or memberNpcEntryIds", () => {
+    const parsed = createNpcMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ title: "Goblin", markdown: "x", npcType: "FACTION", memberNpcEntryIds: [NPC_HEX] }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty("npcType");
+    expect(parsed.items[0]).not.toHaveProperty("memberNpcEntryIds");
+  });
+});
+
+describe("createFactionMnemons", () => {
+  it("POSTs to /mnemons/faction with title-form members resolved to NPC ids", async () => {
+    argoGet.mockResolvedValueOnce([
+      { entryId: NPC_HEX, title: "Bartender", type: "NPC" },
+      { entryId: LOC_HEX, title: "Bartender", type: "Location" },
+    ]);
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Thieves' Guild" }] });
+    await createFactionMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ title: "Thieves' Guild", markdown: "x", memberNpcEntryIds: ["Bartender"] }],
+    });
+    expect(argoPost).toHaveBeenCalledWith(
+      expect.stringMatching(/\/campaigns\/camp-123\/mnemons\/faction$/),
+      { items: [expect.objectContaining({ title: "Thieves' Guild", memberNpcEntryIds: [NPC_HEX] })] }
+    );
   });
 });
 
@@ -679,6 +707,24 @@ describe("updateNpcMnemons", () => {
     const body = argoPatch.mock.calls[0][1] as { items: Array<{ entryId: string; sheetId: string }> };
     expect(body.items[0].entryId).toBe(NPC_HEX);
     expect(body.items[0].sheetId).toBe("sheet-1");
+  });
+});
+
+describe("updateFactionMnemons", () => {
+  it("PATCHes /mnemons/faction with entryId and members resolved", async () => {
+    argoGet.mockResolvedValue([
+      { entryId: ENTRY, title: "Thieves' Guild", type: "Faction" },
+      { entryId: NPC_HEX, title: "Goblin", type: "NPC" },
+    ]);
+    argoPatch.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "Thieves' Guild" }] });
+    await updateFactionMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: "Thieves' Guild", memberNpcEntryIds: ["Goblin"] }],
+    });
+    expect(argoPatch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/mnemons\/faction$/),
+      { items: [expect.objectContaining({ entryId: ENTRY, memberNpcEntryIds: [NPC_HEX] })] }
+    );
   });
 });
 

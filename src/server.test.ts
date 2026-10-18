@@ -48,10 +48,10 @@ describe("MCP server output schemas", () => {
     ]);
   });
 
-  it("advertises outputSchema for all 63 tools", async () => {
+  it("advertises outputSchema for all 65 tools", async () => {
     const result = await client.listTools();
 
-    expect(result.tools).toHaveLength(63);
+    expect(result.tools).toHaveLength(65);
     expect(result.tools.every((tool) => tool.outputSchema)).toBe(true);
   });
 
@@ -268,7 +268,7 @@ describe("MCP server output schemas", () => {
           {
             title: "Captain Nyra",
             markdown: "Harbor master",
-            npcType: "INDIVIDUAL",
+            role: "harbor master",
           },
         ],
       },
