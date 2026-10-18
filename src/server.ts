@@ -34,6 +34,8 @@ import {
   createArchiveMnemonsInputSchema,
   createCustomMnemons,
   createCustomMnemonsInputSchema,
+  createFactionMnemons,
+  createFactionMnemonsInputSchema,
   createJournalMnemons,
   createJournalMnemonsInputSchema,
   createLocationMnemons,
@@ -42,8 +44,6 @@ import {
   createLoreMnemonsInputSchema,
   createMnemonRelationship,
   createMnemonRelationshipInputSchema,
-  createFactionMnemons,
-  createFactionMnemonsInputSchema,
   createNpcMnemons,
   createNpcMnemonsInputSchema,
   createQuestMnemons,
@@ -78,6 +78,8 @@ import {
   updateArchiveMnemonsInputSchema,
   updateCustomMnemons,
   updateCustomMnemonsInputSchema,
+  updateFactionMnemons,
+  updateFactionMnemonsInputSchema,
   updateJournalMnemons,
   updateJournalMnemonsInputSchema,
   updateLocationMnemons,
@@ -86,8 +88,6 @@ import {
   updateLoreMnemonsInputSchema,
   updateMnemonsContent,
   updateMnemonsContentInputSchema,
-  updateFactionMnemons,
-  updateFactionMnemonsInputSchema,
   updateNpcMnemons,
   updateNpcMnemonsInputSchema,
   updatePartyMnemons,
@@ -1001,14 +1001,14 @@ export function createServer(): McpServer {
   registerUpdateMnemonsTool(
     "update_player_mnemons",
     "Update player mnemons",
-    "Update typed/meta fields of Player mnemons — one per character in a party. Player mnemons cannot be created: the server makes one for each character that joins a party. Players with campaign.write may update the entries of a party they belong to; GMs may update any.",
+    "Update typed/meta fields of Player mnemons — one per character in a party. Player mnemons cannot be created: the server makes one for each character that joins a party. Who may edit an entry is decided by its own permissions.",
     updatePlayerMnemonsInputSchema,
     updatePlayerMnemons
   );
   registerUpdateMnemonsTool(
     "update_party_mnemons",
     "Update party mnemons",
-    "Update typed/meta fields of PlayerParty mnemons — one per party in the campaign. PlayerParty mnemons cannot be created: the server makes one for each party. Players with campaign.write may update the entry of a party they belong to; GMs may update any.",
+    "Update typed/meta fields of PlayerParty mnemons — one per party in the campaign. PlayerParty mnemons cannot be created: the server makes one for each party. Who may edit an entry is decided by its own permissions.",
     updatePartyMnemonsInputSchema,
     updatePartyMnemons
   );

@@ -1511,14 +1511,7 @@ export const updatePartyMnemonsInputSchema = z.object({
 export async function updatePartyMnemons(
   input: z.infer<typeof updatePartyMnemonsInputSchema>
 ): Promise<MnemonBulkResponse> {
-  const resolver = new MnemonResolver(input.campaignId);
-  const items = await Promise.all(
-    input.items.map(async (it) => ({ ...it, entryId: await resolver.resolve(it.entryId, { fieldLabel: "entryId" }) }))
-  );
-  return argoPatch<MnemonBulkResponse, { items: typeof items }>(
-    `/mcp/v1/campaigns/${encodeURIComponent(input.campaignId)}/mnemons/party`,
-    { items }
-  );
+  return resolveAndPatchSimple(input, "party", false);
 }
 
 // --- Custom ---
