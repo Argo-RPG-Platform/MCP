@@ -1117,22 +1117,30 @@ const sessionSummaryNarrative = {
     ),
 };
 
+/**
+ * The session memories are the campaign's history (ARGO-3327); the calendar is
+ * an optional helper. A memory's date and number are its own, linked to a
+ * calendar session or not, and linking keeps them. Left unset, the server fills
+ * them in: the number is the memory's place in its party's history, and a
+ * linked memory takes its session's date.
+ */
 const sessionSummaryOccurrence = {
   date: z
     .string()
     .optional()
     .describe(
-      "Only for a summary NOT linked to a calendar session (e.g. a past chapter brought into Argo): " +
-        "ISO date (2024-02-10) or date-time. A linked summary takes its date from the calendar; " +
-        "linking clears this. An empty string clears it."
+      "When the session was played: ISO date (2024-02-10) or date-time. Set it for a past chapter " +
+        "brought into Argo. Leave it out for a summary linked to a calendar session: it then takes the " +
+        "session's date. Linking never clears it. An empty string clears it."
     ),
   sessionNumber: z
     .number()
     .int()
     .optional()
     .describe(
-      "Only for a summary NOT linked to a calendar session: its chapter number, a positive whole number. " +
-        "A linked summary is numbered by the calendar; linking clears this. 0 clears it."
+      "The session's number in the party's history, a positive whole number, kept as written. Leave it " +
+        "out to let Argo number the summary by its place in the history (after the highest number before " +
+        "it). Linking never clears it. 0 clears it."
     ),
 };
 
