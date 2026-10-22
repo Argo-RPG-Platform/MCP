@@ -922,7 +922,8 @@ export function createServer(): McpServer {
   registerCreateMnemonsTool(
     "create_session_summary_mnemons",
     "Create session summary mnemons",
-    "Create SessionSummary mnemons (structured summaries of game sessions). Players may not call this — GM/co-GM only.",
+    "Create SessionSummary mnemons (the memory of one played session): the story as the Markdown body, " +
+      "plus a short recap shown as \"Previously on\". Players may not call this — GM/co-GM only.",
     createSessionSummaryMnemonsInputSchema,
     createSessionSummaryMnemons
   );
@@ -996,7 +997,7 @@ export function createServer(): McpServer {
   registerUpdateMnemonsTool(
     "update_session_summary_mnemons",
     "Update session summary mnemons",
-    "Update typed/meta fields of SessionSummary mnemons.",
+    "Update the recap, date, number and meta fields of SessionSummary mnemons. To change the story, use update_mnemons_content.",
     updateSessionSummaryMnemonsInputSchema,
     updateSessionSummaryMnemons
   );
