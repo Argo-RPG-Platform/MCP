@@ -17,6 +17,8 @@ import {
   createLocationMnemons,
   createQuestMnemons,
   createQuestMnemonsInputSchema,
+  createSessionSummaryMnemons,
+  createSessionSummaryMnemonsInputSchema,
   deleteMnemon,
   describeMnemonTypes,
   describeMnemonTypesOutputSchema,
@@ -32,6 +34,7 @@ import {
   updateMnemonsContent,
   updateQuestMnemons,
   updateQuestMnemonsInputSchema,
+  updateSessionSummaryMnemonsInputSchema,
   type MnemonSummary,
 } from "./mnemon.js";
 import * as client from "../client.js";
@@ -807,5 +810,57 @@ describe("updateMnemonsContent", () => {
     });
     const body = argoPost.mock.calls[0][1] as { items: Array<{ entryId: string }> };
     expect(body.items[0].entryId).toBe(ENTRY);
+  });
+});
+
+describe("session summary tools — one story, one recap (ARGO-3284)", () => {
+  const STORY = "## What happened\nThey met.";
+  const RECAP = "They met; now camped at the tower.";
+
+  it("POSTs the story as markdown plus the recap", async () => {
+    argoPost.mockResolvedValueOnce({ results: [{ index: 0, success: true, entryId: ENTRY, title: "S01" }] });
+    await createSessionSummaryMnemons({
+      campaignId: CAMPAIGN,
+      items: [{ title: "S01", markdown: STORY, recap: RECAP }],
+    });
+    expect(argoPost).toHaveBeenCalledWith(expect.stringMatching(/\/mnemons\/session-summary$/), {
+      items: [{ title: "S01", markdown: STORY, recap: RECAP }],
+    });
+  });
+
+  it("no longer offers the retired fields on create or update", () => {
+    const retired = {
+      suggestedTitle: "x",
+      oneSentenceSummary: "x",
+      detailedSummary: "x",
+      previouslyOn: "x",
+      partyEndState: { Eira: "wounded" },
+      majorEvents: ["x"],
+      partyDecisions: ["x"],
+      openThreads: ["x"],
+      loot: ["x"],
+      npcsMentioned: [{ name: "Mira" }],
+      combats: [{ description: "x" }],
+    };
+    const created = createSessionSummaryMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ title: "S01", markdown: "x", recap: "r", ...retired }],
+    }).items[0];
+    const updated = updateSessionSummaryMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: ENTRY, recap: "r", ...retired }],
+    }).items[0];
+    for (const item of [created, updated]) {
+      expect(item).toHaveProperty("recap", "r");
+      for (const key of Object.keys(retired)) expect(item).not.toHaveProperty(key);
+    }
+  });
+
+  it("keeps the authored date and number for unlinked summaries", () => {
+    const parsed = updateSessionSummaryMnemonsInputSchema.parse({
+      campaignId: CAMPAIGN,
+      items: [{ entryId: ENTRY, date: "2024-02-10", sessionNumber: 3 }],
+    });
+    expect(parsed.items[0]).toMatchObject({ date: "2024-02-10", sessionNumber: 3 });
   });
 });

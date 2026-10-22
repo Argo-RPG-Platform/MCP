@@ -1094,54 +1094,55 @@ export async function createJournalMnemons(
 // --- SessionSummary ---
 
 /**
- * Narrative fields authored by the AthenaLLM summary pass in the Unreal client;
- * a GM may edit any of them afterwards. Shared by the create and update schemas.
+ * A session memory is its story plus one short recap (ARGO-3284). The story is
+ * the Markdown body: what happened, decisions, loot, open threads, combats and
+ * where the party left off go there as headed sections. The recap is the only
+ * typed narrative field. Shared by the create and update schemas.
  *
- * Note what is absent: attendees and featured quests/locations used to be id
- * arrays here. They are relationships now, so link them with
+ * The retired fields (suggestedTitle, oneSentenceSummary, detailedSummary,
+ * previouslyOn, partyEndState and the lists) are not offered: the server still
+ * maps them for old clients, but never stores or returns them.
+ *
+ * Attendees and featured quests/locations are relationships: link them with
  * create_mnemon_relationship using SESSION_ATTENDEE_CHARACTER,
  * SESSION_ATTENDEE_NPC, SESSION_FEATURED_QUEST, or SESSION_FEATURED_LOCATION.
  */
 const sessionSummaryNarrative = {
-  suggestedTitle: z.string().optional().describe("Short evocative title for the session, like a TV episode title."),
-  oneSentenceSummary: z.string().optional().describe("Single-sentence TL;DR of what happened."),
-  detailedSummary: z.string().optional().describe("Full narrative summary, 3-5 paragraphs."),
-  previouslyOn: z.string().optional().describe("Where each player ended — read aloud at the top of the next session."),
-  partyEndState: z
-    .record(z.string(), z.string())
-    .optional()
-    .describe("Character display name -> short end-of-session status line."),
-  majorEvents: stringArray().describe("Significant story beats, in chronological order."),
-  partyDecisions: stringArray().describe("Meaningful choices that will shape future sessions."),
-  openThreads: stringArray().describe("Unresolved threads and cliffhangers as of session end."),
-  loot: stringArray().describe("Items, treasure, or rewards acquired."),
-  npcsMentioned: z
-    .array(
-      z.object({
-        name: z.string().min(1).describe('Name as referenced in the session, e.g. "Captain Mira".'),
-        role: z.string().optional().describe('Role played this session, e.g. "quest-giver", "rescued captive".'),
-      })
-    )
+  recap: z
+    .string()
     .optional()
     .describe(
-      "NPCs that appeared or were referenced. This is descriptive only — to link one to an " +
-        "existing NPC mnemon, call create_mnemon_relationship with SESSION_ATTENDEE_NPC."
+      "Short recap, 1-3 sentences, ending on where the party stands. Shown as \"Previously on\" " +
+        "on the next session and the campaign Dashboard. The full story goes in the Markdown body."
     ),
-  combats: z
-    .array(
-      z.object({
-        description: z.string().min(1).describe("Who fought whom and where, in one sentence."),
-        outcome: z.string().optional().describe('How it resolved, e.g. "party victorious, no casualties".'),
-      })
-    )
+};
+
+const sessionSummaryOccurrence = {
+  date: z
+    .string()
     .optional()
-    .describe("Combat encounters that took place this session."),
+    .describe(
+      "Only for a summary NOT linked to a calendar session (e.g. a past chapter brought into Argo): " +
+        "ISO date (2024-02-10) or date-time. A linked summary takes its date from the calendar; " +
+        "linking clears this. An empty string clears it."
+    ),
+  sessionNumber: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Only for a summary NOT linked to a calendar session: its chapter number, a positive whole number. " +
+        "A linked summary is numbered by the calendar; linking clears this. 0 clears it."
+    ),
 };
 
 const createSessionSummaryItemSchema = z.object({
   ...createCommon,
-  date: z.string().optional(),
-  sessionNumber: z.number().int().optional(),
+  markdown: createCommon.markdown.describe(
+    "The session's story as Markdown, with headed sections such as What happened, Decisions, Loot, " +
+      "Open threads, Combats and Where we left off. Mentions: @[label](mnemon:<entryId>)."
+  ),
+  ...sessionSummaryOccurrence,
   ...sessionSummaryNarrative,
 });
 
@@ -1444,8 +1445,7 @@ export async function updateJournalMnemons(
 // --- SessionSummary ---
 const updateSessionSummaryItemSchema = z.object({
   ...updateCommon,
-  date: z.string().optional(),
-  sessionNumber: z.number().int().optional(),
+  ...sessionSummaryOccurrence,
   ...sessionSummaryNarrative,
 });
 export const updateSessionSummaryMnemonsInputSchema = z.object({
